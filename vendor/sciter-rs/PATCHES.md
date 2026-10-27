@@ -1,0 +1,24 @@
+# Local Sciter Rust binding
+
+Based on `sciter-rs` 0.5.58 from crates.io, MIT licensed; see `LICENSE`. The vendored files include the crate source, license, README, reduced manifest and lockfile used for standalone binding tests. The Sciter engine DLL is separate and is not included here.
+
+Local changes:
+- Match raw host notification numbers instead of transmuting arbitrary values to an enum; unknown notifications are ignored as before, without creating an invalid enum value.
+- Remove `Value` indexing implementations and their `&self` to `&mut` cast, which allowed aliasing and failed the current Rust compiler's invalid-reference-casting check. Use the binding's owned-value lookup APIs instead.
+- Protect the configurable dynamic-library path and extension host API with mutexes instead of `static mut`; loaders take a snapshot of the path before calling platform APIs, and poisoned locks recover the stored configuration.
+- Remove undocumented `Send`/`Sync` implementations from DOM elements, Sciter values, and generic video asset pointers. These wrappers contain engine-owned raw handles; `Value::isolate` alone did not enforce isolation before a value crossed a thread boundary.
+- Remove `IAsset::from_raw`'s safe `&*mut` to `&mut` conversion. Asset callbacks now access only the atomic refcount through a raw field projection and read a passport cached at construction; `IAssetRef::from_raw` is explicitly unsafe because it dereferences an engine-owned pointer.
+- Make `AssetPtr::adopt` explicitly unsafe and remove `From<*mut T>` so arbitrary raw video pointers cannot be adopted through a safe API. The internal `query_interface` path rejects null and adopts only the pointer returned by Sciter.
+- Replace safe `From<HELEMENT>` with `unsafe Element::from_raw`, and keep a private constructor for handles returned by Sciter API calls. Update binding examples to the unsafe constructor and replace stale `Value` indexing examples with owned lookup methods.
+- Mark public `Host::attach`, `Host::attach_with`, `Window::attach`, `Window::attach_intercepted`, and raw-parent `Window::create` unsafe with native-window liveness/thread preconditions. `Builder::with_parent` is unsafe and carries its parent liveness requirement through `create`; internally created windows attach only after Sciter returns a handle.
+- Mark raw native parent handles unsafe in `Window::create` and `Builder::with_parent`; the builder safety contract carries parent liveness through consumption.
+- Add compile-fail doctests to lock in the intentional non-`Send`/non-`Sync` status of the DOM, value, and video pointer wrappers.
+- Mark DOM lookups/child-window attachment, raw UTF conversion, windowless message handling, and video `get_interface` unsafe where callers supply external pointers. Event/request source elements now borrow `&Element` instead of accepting unchecked raw `HELEMENT`s.
+- Represent event-group flags and behavior-event codes as transparent integer newtypes. This keeps the C ABI layout while allowing combinations and custom application event IDs without constructing invalid Rust enums.
+- Read initialization, SOM, and draw commands as raw `UINT` values. Decode draw layers, behavior phases, click reasons, and edit reasons before passing values to callbacks; reject unknown phases and draw layers, preserve unknown reason values, and return `FALSE` for null event parameters.
+- Match behavior method IDs as raw integers and ignore unknown initialization/SOM commands. This removes the event-dispatch path's raw-integer-to-enum transmutations.
+- Add focused tests for combined event flags, application event IDs, unknown draw phases/layers, and unknown reasons.
+- Represent `ELEMENT_STATE_BITS` and `SCITER_CREATE_WINDOW_FLAGS` as transparent `UINT` newtypes. Combined and unknown bits remain valid values; DOM state reads and `WindowBuilder` no longer transmute raw bitmasks into enums. Add tests for combined, unknown and ABI-width state/window flags.
+- Harden image and windowless paint callbacks: reject null payloads and impossible sizes, use checked bitmap dimension/coordinate arithmetic, and catch unwinding panics from Rust closures before they cross the Sciter C ABI. Image save reports `BAD_PARAM` if its callback rejects data or catches an unwind. With `panic=abort`, panics still abort the process. Value enumeration rejects null callback arguments rather than asserting. These checks cannot validate that non-null pointers supplied by Sciter actually reference readable buffers; that remains an ABI/runtime trust boundary.
+
+This is not a full soundness audit. Function-pointer conversions, raw pointer ownership/aliasing, ABI/version assumptions and compiler warnings remain. The prior `Window::new` invalid-enum flag path is removed, but Sciter integration remains experimental. Do not use this copy as evidence of production safety or Windows 7 runtime compatibility.

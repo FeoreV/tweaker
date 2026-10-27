@@ -1,0 +1,1699 @@
+{
+  "source_file": "winutil-26.08.19/config/tweaks.json",
+  "draft_file": "TWEAKS_INVENTORY.md",
+  "source_sha256": "CEEEAF210309390CE094A16BB3F0467852E915E9F946E7C7C723A9AF1FCBB2F9",
+  "meaning": "Exact-ID comparison of labels and draft claims with source declaration counts; values are not semantically validated. Similar IDs are not aliases.",
+  "exact_id_matches": 42,
+  "source_only_ids": [
+    "WPFAddUltPerf",
+    "WPFMultiplaneOverlay",
+    "WPFOOSUbutton",
+    "WPFRemoveUltPerf",
+    "WPFToggleGameMode",
+    "WPFToggleHideSettingsHome",
+    "WPFToggleLoginBlur",
+    "WPFToggleLongPaths",
+    "WPFToggleMouseAcceleration",
+    "WPFToggleNewOutlook",
+    "WPFToggleStartMenuRecommendations",
+    "WPFTweaksDeliveryOptimization",
+    "WPFTweaksDisableBGapps",
+    "WPFTweaksDisableBitLocker",
+    "WPFTweaksDisableLockscreen",
+    "WPFTweaksDisableWarningForUnsignedRdp",
+    "WPFTweaksPreventDeviceMetadataFromNetwork",
+    "WPFTweaksRazerBlock",
+    "WPFTweaksRemoveHomeAndGallery",
+    "WPFTweaksRemoveOneDrive",
+    "WPFTweaksReservedStorage",
+    "WPFTweaksRevertStartMenu",
+    "WPFTweaksWidget",
+    "WPFchangedns"
+  ],
+  "draft_only_ids": [
+    "WPFToggleMouseAccel",
+    "WPFToggleMultiplaneOverlay",
+    "WPFToggleTaskbarWidgets",
+    "WPFTweaksAddUltPerf",
+    "WPFTweaksDVR",
+    "WPFTweaksDeBloat",
+    "WPFTweaksDebloatAdobe",
+    "WPFTweaksDeviceMetadata",
+    "WPFTweaksDisableBGApps",
+    "WPFTweaksDisableCStates",
+    "WPFTweaksDisableFSO",
+    "WPFTweaksDisableLMS1",
+    "WPFTweaksHomegroup",
+    "WPFTweaksHoverTime",
+    "WPFTweaksIRPStackSize",
+    "WPFTweaksOO",
+    "WPFTweaksPowershell7Tele",
+    "WPFTweaksRemoveCopilot",
+    "WPFTweaksRemoveGallery",
+    "WPFTweaksRemoveHome",
+    "WPFTweaksRemoveOnedrive",
+    "WPFTweaksRemoveUltPerf",
+    "WPFTweaksUnsignedRDP",
+    "WPFTweaksWifi"
+  ],
+  "entries": {
+    "WPFAddUltPerf": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Ultimate Performance Profile - Enable",
+        "category": "Performance Plans - NOT FOR LAPTOPS",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFMultiplaneOverlay": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Multiplane Overlay",
+        "category": "Customize Preferences",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFOOSUbutton": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "O&O ShutUp10++ - Run",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFRemoveUltPerf": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Ultimate Performance Profile - Disable",
+        "category": "Performance Plans - NOT FOR LAPTOPS",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFToggleBatteryPercentage": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "System Tray Battery Percentage",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 62,
+        "display_name": "Show Battery Percentage in Tray",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced` -> `ShowBatteryPercentage`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "❌ Win11 only",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleBingSearch": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Start Menu Bing Search",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 47,
+        "display_name": "Bing Search in Start Menu",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search` -> `BingSearchEnabled`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleDarkMode": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Dark Theme for Windows",
+        "category": "Customize Preferences",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 46,
+        "display_name": "Enable Windows Dark Theme",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize` -> `AppsUseLightTheme`, `SystemUsesLightTheme`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "`1` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleDetailedBSoD": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "BSoD Verbose Mode",
+        "category": "Customize Preferences",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 58,
+        "display_name": "Show Detailed BSoD Parameters",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Control\\CrashControl` -> `DisplayParameters`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleGameMode": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Game Mode",
+        "category": "Customize Preferences",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFToggleHiddenFiles": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "File Explorer Hidden Files",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 51,
+        "display_name": "Show Hidden Files in Explorer",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced` -> `Hidden`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`2` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleHideSettingsHome": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Settings Home Page",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFToggleLoginBlur": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Logon Screen Acrylic Blur",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFToggleLongPaths": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Enable Long Paths",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFToggleMouseAccel": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 52,
+        "display_name": "Mouse Acceleration Thresholds",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Control Panel\\Mouse` -> `MouseSpeed`, `MouseThreshold1`, `MouseThreshold2`",
+        "draft_apply_value": "`\"1\"`, `\"6\"`, `\"10\"`",
+        "draft_undo_value": "`\"0\"`, `\"0\"`, `\"0\"`",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleMouseAcceleration": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Mouse Acceleration",
+        "category": "Customize Preferences",
+        "registry_entry_count": 3,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFToggleMultiplaneOverlay": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 64,
+        "display_name": "Disable Multiplane Overlay (MPO)",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Microsoft\\Windows\\Dwm` -> `OverlayTestMode`",
+        "draft_apply_value": "`5` (DWORD)",
+        "draft_undo_value": "DeleteValue",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleNewOutlook": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Microsoft Outlook New Version",
+        "category": "Customize Preferences",
+        "registry_entry_count": 4,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFToggleNumLock": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Num Lock on Startup",
+        "category": "Customize Preferences",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 48,
+        "display_name": "NumLock on Startup",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKU\\.DEFAULT\\Control Panel\\Keyboard` -> `InitialKeyboardIndicators`",
+        "draft_apply_value": "`\"2\"` (SZ)",
+        "draft_undo_value": "`\"0\"` (SZ)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleS3Sleep": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "S3 Sleep",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 59,
+        "display_name": "Force S3 Sleep (Disable S0 Standby)",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Control\\Power` -> `PlatformAoAcOverride`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "DeleteValue",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleScrollbars": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Scrollbars Always Visible",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 61,
+        "display_name": "Always Show Full Scrollbars",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Control Panel\\Accessibility` -> `DynamicScrollbars`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "`1` (DWORD)",
+        "draft_compatibility_claim": "❌ Win11 only",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleShowExt": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "File Explorer File Extensions",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 50,
+        "display_name": "Show Known File Extensions",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced` -> `HideFileExt`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "`1` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleStandbyFix": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "S0 Sleep Network Connectivity",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 60,
+        "display_name": "Fix Modern Standby Drain",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Control\\Power` -> `CsEnabled`, `PlatformAoAcOverride`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "`1` / DeleteValue",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleStartMenuRecommendations": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Start Menu Recommendations",
+        "category": "Customize Preferences",
+        "registry_entry_count": 3,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFToggleStickyKeys": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Sticky Keys",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 53,
+        "display_name": "Disable Sticky Keys Shortcut",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Control Panel\\Accessibility\\StickyKeys` -> `Flags`",
+        "draft_apply_value": "`\"510\"` (SZ)",
+        "draft_undo_value": "`\"506\"` (SZ)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleTaskView": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Taskbar Task View Icon",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 56,
+        "display_name": "Show Task View Button",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced` -> `ShowTaskViewButton`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleTaskbarAlignment": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Taskbar Centered Icons",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 57,
+        "display_name": "Center Taskbar Icons",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced` -> `TaskbarAl`",
+        "draft_apply_value": "`1` (Center)",
+        "draft_undo_value": "`0` (Left)",
+        "draft_compatibility_claim": "❌ Win11 only",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleTaskbarSearch": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Taskbar Search Icon",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 55,
+        "display_name": "Show Taskbar Search Button",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search` -> `SearchboxTaskbarMode`",
+        "draft_apply_value": "`1` / `2` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleTaskbarWidgets": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 54,
+        "display_name": "Show Taskbar Widgets Button",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced` -> `TaskbarDa`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleVerboseLogon": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Logon Verbose Mode",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 49,
+        "display_name": "Verbose Status Messages on Logon",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System` -> `VerboseStatus`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFToggleWindowSnapping": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Window Snapping",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 63,
+        "display_name": "Enable Aero Snap Window Snapping",
+        "category": "Preferences",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Control Panel\\Desktop` -> `WindowArrangementActive`",
+        "draft_apply_value": "`\"1\"` (SZ)",
+        "draft_undo_value": "`\"0\"` (SZ)",
+        "draft_compatibility_claim": "✅ Compatible *(Introduced in Win7!)*",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksActivity": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Activity History - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 3,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 2,
+        "display_name": "Disable Activity History",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System` -> `EnableActivityFeed`, `PublishUserActivities`, `UploadUserActivities`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "DeleteValue / `1`",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksAddUltPerf": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 65,
+        "display_name": "Enable Ultimate Performance Scheme",
+        "category": "Performance",
+        "draft_type": "Button",
+        "draft_operations": "Runs `powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61` + `-setactive` *(High Perf `8c5e7fda-...` on Win7)*",
+        "draft_apply_value": "Activate Scheme",
+        "draft_undo_value": "N/A",
+        "draft_compatibility_claim": "✅ Compatible *(with fallback)*",
+        "draft_undo_claim": "❌ No"
+      }
+    },
+    "WPFTweaksBlockAdobeNet": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Adobe URL Block List - Enable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 33,
+        "display_name": "Block Adobe Network in Hosts",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Appends Adobe telemetry hosts blocklist to `%SystemRoot%\\System32\\drivers\\etc\\hosts`",
+        "draft_apply_value": "Append hosts block",
+        "draft_undo_value": "Restore hosts backup",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksBraveDebloat": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Brave Browser - Debloat",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 12,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 16,
+        "display_name": "Brave Debloat",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave` -> `BraveRewardsDisabled`, `BraveWalletDisabled`, `BraveVPNDisabled`, `BraveAIChatEnabled`",
+        "draft_apply_value": "`1`, `1`, `1`, `0` (DWORD)",
+        "draft_undo_value": "DeleteValue",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksConsumerFeatures": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "ConsumerFeatures - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 3,
+        "display_name": "Disable Consumer Features",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent` -> `DisableWindowsConsumerFeatures`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "DeleteValue / `0`",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDVR": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 15,
+        "display_name": "Disable GameDVR",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\System\\GameConfigStore` -> `GameDVR_FSEBehavior`, `GameDVR_Enabled`; `HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\GameDVR` -> `AllowGameDVR`",
+        "draft_apply_value": "`2` / `0` (DWORD)",
+        "draft_undo_value": "`1` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDeBloat": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 19,
+        "display_name": "Remove ALL MS Store Apps (Caution)",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Enumerates non-whitelisted UWP packages via AppX script",
+        "draft_apply_value": "`Remove-AppxPackage`",
+        "draft_undo_value": "N/A",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "❌ No"
+      }
+    },
+    "WPFTweaksDebloatAdobe": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 34,
+        "display_name": "Disable Adobe Background Services",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Services `AdobeARMservice`, `agsservice`, `AGMService`, `CCXProcess` via `ChangeServiceConfigW`",
+        "draft_apply_value": "Disabled (`4`)",
+        "draft_undo_value": "Automatic / Manual",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDeleteTempFiles": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Temporary Files - Remove",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 14,
+        "display_name": "Delete Temporary Files",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Native `FindFirstFileExW` + `DeleteFileW` across `%TEMP%`, `C:\\Windows\\Temp`, `SoftwareDistribution\\Download`",
+        "draft_apply_value": "Execute cleanup",
+        "draft_undo_value": "N/A",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "❌ No"
+      }
+    },
+    "WPFTweaksDeliveryOptimization": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Delivery Optimization - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksDeviceMetadata": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 40,
+        "display_name": "Prevent Device Metadata Auto-Download",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Device Metadata` -> `PreventDeviceMetadataFromNetwork`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableBGApps": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 37,
+        "display_name": "Disable Background Apps",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications` -> `GlobalUserDisabled`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` / DeleteValue",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableBGapps": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Background Apps - Disable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksDisableBitLocker": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "BitLocker - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksDisableCStates": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 42,
+        "display_name": "Disable CPU Core Parking (C-States)",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Control\\Power\\PowerSettings\\54533251-82be-4824-96c1-47b60b740d00\\0cc5b647-c1df-4637-891a-dec35c318583` -> `ValueMax`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "`100` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableExplorerAutoDiscovery": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "File Explorer Automatic Folder Discovery - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 7,
+        "display_name": "Disable Explorer Auto Folder Discovery",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\Bags\\AllFolders\\Shell` -> `FolderType`",
+        "draft_apply_value": "`\"NotSpecified\"` (SZ)",
+        "draft_undo_value": "DeleteKey",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableFSO": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 28,
+        "display_name": "Disable Fullscreen Optimizations",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\System\\GameConfigStore` -> `GameDVR_DXGIHonorFSEWindowsCompatible`, `GameDVR_FSEBehaviorMode`",
+        "draft_apply_value": "`1`, `2` (DWORD)",
+        "draft_undo_value": "`0`, `0` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableIPv6": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "IPv6 - Disable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 32,
+        "display_name": "Disable IPv6 Completely",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters` -> `DisabledComponents`",
+        "draft_apply_value": "`255` (`0xFF` DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableLMS1": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 29,
+        "display_name": "Disable Intel LMS Service",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Service `LMS` via `ChangeServiceConfigW`",
+        "draft_apply_value": "Disabled (`4`)",
+        "draft_undo_value": "Automatic (`2`)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableLockscreen": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Lock Screen - Disable",
+        "category": "Customize Preferences",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksDisableNotifications": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "System Tray Notifications & Calendar - Disable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 41,
+        "display_name": "Disable Notification Center",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Policies\\Microsoft\\Windows\\Explorer` -> `DisableNotificationCenter`; `HKCU\\...\\PushNotifications` -> `ToastEnabled`",
+        "draft_apply_value": "`1`, `0` (DWORD)",
+        "draft_undo_value": "`0`, `1` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableStoreSearch": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Microsoft Store Recommended Search Results - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 38,
+        "display_name": "Disable Store Search in Start",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer` -> `NoUseStoreOpenWith`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` / DeleteValue",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksDisableWarningForUnsignedRdp": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "RDP Unsigned File Warnings - Disable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksDiskCleanup": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Disk Cleanup - Run",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 13,
+        "display_name": "Run Disk Cleanup",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Native recursive file deletion in `%TEMP%`, `C:\\Windows\\Temp`, `C:\\Windows\\Prefetch` + `cleanmgr.exe /sagerun:1`",
+        "draft_apply_value": "Execute cleanup",
+        "draft_undo_value": "N/A",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "❌ No"
+      }
+    },
+    "WPFTweaksDisplay": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Visual Effects - Set to Best Performance",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 12,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 35,
+        "display_name": "Set Visual Effects for Performance",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects` -> `VisualFXSetting`; `HKCU\\Control Panel\\Desktop` -> `MenuShowDelay`",
+        "draft_apply_value": "`2` (DWORD), `\"0\"`",
+        "draft_undo_value": "`0` (DWORD), `\"400\"`",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksEdgeDebloat": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Microsoft Edge - Debloat",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 17,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 17,
+        "display_name": "Edge Debloat",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge` -> `HubsSidebarEnabled`, `ShoppingAssistantEnabled`, `UserFeedbackAllowed`, `BackgroundModeEnabled`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "DeleteValue",
+        "draft_compatibility_claim": "✅ Compatible *(Edge v109 on Win7)*",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksEndTaskOnTaskbar": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "End Task With Right Click - Enable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 9,
+        "display_name": "Enable End Task With Right Click",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings` -> `TaskbarEndTask`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "❌ Win11 only",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksHiber": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Hibernation - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 12,
+        "display_name": "Disable Hibernation",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Control\\Power` -> `HibernateEnabled`; runs `powercfg.exe /hibernate off`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "`1` (DWORD); `powercfg /hibernate on`",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksHomegroup": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 18,
+        "display_name": "Disable HomeGroup Services",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Services `HomeGroupListener`, `HomeGroupProvider` via `ChangeServiceConfigW`",
+        "draft_apply_value": "Disabled (`4`)",
+        "draft_undo_value": "Manual (`3`)",
+        "draft_compatibility_claim": "✅ Compatible *(Primary on Win7/8.1)*",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksHoverTime": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 44,
+        "display_name": "Reduce Mouse Hover Delay",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Control Panel\\Mouse` -> `MouseHoverTime`",
+        "draft_apply_value": "`\"400\"` (SZ)",
+        "draft_undo_value": "Default",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksIPv46": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "IPv6 - Set IPv4 as Preferred",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 30,
+        "display_name": "Prefer IPv4 over IPv6",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters` -> `DisabledComponents`",
+        "draft_apply_value": "`32` (`0x20` DWORD)",
+        "draft_undo_value": "`0` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksIRPStackSize": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 43,
+        "display_name": "Increase LanmanServer IRPStackSize",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters` -> `IRPStackSize`",
+        "draft_apply_value": "`30` (DWORD)",
+        "draft_undo_value": "`15` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksLocation": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Location Tracking - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 3,
+        "service_entry_count": 1,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 5,
+        "display_name": "Disable Location Tracking",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\location` -> `Value`; Service `lfsvc` (Geolocation)",
+        "draft_apply_value": "`\"Deny\"` (SZ); `lfsvc` = Disabled",
+        "draft_undo_value": "`\"Allow\"` (SZ); `lfsvc` = Manual",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksOO": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 45,
+        "display_name": "Run O&O ShutUp10++",
+        "category": "Advanced Tweaks",
+        "draft_type": "Button",
+        "draft_operations": "Downloads `OOSU10.exe` via WinHTTP and launches process",
+        "draft_apply_value": "Execute `OOSU10.exe`",
+        "draft_undo_value": "N/A",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "❌ No"
+      }
+    },
+    "WPFTweaksPowershell7Tele": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 10,
+        "display_name": "Disable PowerShell 7 Telemetry",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment` -> `POWERSHELL_TELEMETRY_OPTOUT`",
+        "draft_apply_value": "`\"1\"` (SZ)",
+        "draft_undo_value": "DeleteValue",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksPreventDeviceMetadataFromNetwork": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Prevent Device Companion Apps",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksRazerBlock": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Razer Software Auto-Install - Disable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksRemoveCopilot": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 27,
+        "display_name": "Remove Copilot",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU` & `HKLM` `Policies\\Microsoft\\Windows\\WindowsCopilot` -> `TurnOffWindowsCopilot`; `Remove-AppxPackage *Copilot*`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "DeleteValue",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksRemoveEdge": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Microsoft Edge - Remove",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 26,
+        "display_name": "Remove Microsoft Edge",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Microsoft\\EdgeUpdate` -> `DoNotUpdateToEdgeWithChromium` + runs `setup.exe --uninstall --system-level --force-uninstall`",
+        "draft_apply_value": "`1` (DWORD) + Uninstall",
+        "draft_undo_value": "`0` + Reinstall",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksRemoveGallery": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 24,
+        "display_name": "Remove Gallery from Explorer",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}`",
+        "draft_apply_value": "DeleteKey",
+        "draft_undo_value": "CreateKey",
+        "draft_compatibility_claim": "❌ Win11 only",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksRemoveHome": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 23,
+        "display_name": "Remove Home from Explorer",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}`",
+        "draft_apply_value": "DeleteKey / `1`",
+        "draft_undo_value": "CreateKey / `0`",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksRemoveHomeAndGallery": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "File Explorer Home and Gallery - Disable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 3,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksRemoveOneDrive": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Microsoft OneDrive - Remove",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksRemoveOnedrive": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 25,
+        "display_name": "Remove OneDrive",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Executes `OneDriveSetup.exe /uninstall` + sets `HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\OneDrive` -> `DisableFileSyncNGSC`",
+        "draft_apply_value": "`1` (DWORD) + Uninstall",
+        "draft_undo_value": "`0` (DWORD) + Reinstall",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksRemoveUltPerf": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 66,
+        "display_name": "Reset Power Scheme to Balanced",
+        "category": "Performance",
+        "draft_type": "Button",
+        "draft_operations": "Runs `powercfg -setactive 381b4222-f694-41f0-9685-ff5bb260df2e`",
+        "draft_apply_value": "Activate Balanced",
+        "draft_undo_value": "N/A",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "❌ No"
+      }
+    },
+    "WPFTweaksReservedStorage": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Disable Reserved Storage",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksRestorePoint": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Restore Point - Create",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 1,
+        "display_name": "Create Restore Point",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Invokes `srclient.dll!SRSetRestorePointW` + sets `HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\SystemRestore` -> `SystemRestorePointCreationFrequency`",
+        "draft_apply_value": "`0` (DWORD) + Create RP",
+        "draft_undo_value": "`1440` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "❌ No"
+      }
+    },
+    "WPFTweaksRevertStartMenu": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Start Menu Previous Layout - Enable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksRightClickMenu": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Right-Click Menu Previous Layout - Enable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 22,
+        "display_name": "Classic Right-Click Menu",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32` -> `(Default)`",
+        "draft_apply_value": "`\"\"` (Empty SZ)",
+        "draft_undo_value": "DeleteKeyTree",
+        "draft_compatibility_claim": "❌ Win11 only",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksServices": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Services - Set to Manual",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 0,
+        "service_entry_count": 5,
+        "invoke_script_count": 1,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 6,
+        "display_name": "Services - Set to Manual",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "Configures ~25 non-essential background services (`MapsBroker`, `NetTcpPortSharing`, `RemoteRegistry`, `shpamsvc`, `WerSvc`, `wisvc`, `WMPNetworkSvc`, `Fax`, etc.) + `SvcHostSplitThresholdInKB`",
+        "draft_apply_value": "Demand (`3`) or Disabled (`4`); Split = RAM KB",
+        "draft_undo_value": "OriginalType per service; `3670016` (DWORD)",
+        "draft_compatibility_claim": "✅ Compatible *(skips non-existent services cleanly)*",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksStorage": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Storage Sense - Disable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 11,
+        "display_name": "Disable Storage Sense",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy` -> `01`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "`1` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksTelemetry": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Telemetry - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 12,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 4,
+        "display_name": "Disable Telemetry",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection` -> `AllowTelemetry`; `HKLM\\...\\Policies\\DataCollection` -> `AllowTelemetry`; Services `DiagTrack`, `dmwappushservice`",
+        "draft_apply_value": "`0` (DWORD); Services Disabled (`4`)",
+        "draft_undo_value": "`1` / `3` (DWORD); Services Auto (`2`)",
+        "draft_compatibility_claim": "✅ Compatible *(DiagTrack in Win7 via KB3068708)*",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksTeredo": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Teredo - Disable",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 1,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 31,
+        "display_name": "Disable Teredo Tunneling",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters` -> `DisabledComponents` or `netsh int teredo set state disabled`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` / default",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksUTC": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Date & Time - Set Time to UTC",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 36,
+        "display_name": "Set RTC Time to UTC (Dual Boot)",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Control\\TimeZoneInformation` -> `RealTimeIsUniversal`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` / DeleteValue",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksUnsignedRDP": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 39,
+        "display_name": "Allow Unsigned RDP Connections",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Microsoft\\Terminal Server Client` -> `AuthenticationLevelOverride`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "DeleteValue",
+        "draft_compatibility_claim": "✅ Compatible",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksWPBT": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Windows Platform Binary Table (WPBT) - Disable",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 1,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 20,
+        "display_name": "Disable WPBT Execution",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager` -> `DisableWpbtExecution`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "`0` / DeleteValue",
+        "draft_compatibility_claim": "✅ Compatible *(Harmless on Win7)*",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksWidget": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "Widgets - Remove",
+        "category": "Essential Tweaks",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    },
+    "WPFTweaksWifi": {
+      "match_status": "draft_only",
+      "upstream": null,
+      "draft": {
+        "row_number": 8,
+        "display_name": "Disable Wi-Fi Sense",
+        "category": "Essential Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKLM\\SOFTWARE\\Microsoft\\PolicyManager\\default\\WiFi\\AllowWiFiHotSpotReporting` -> `Value`; `AllowAutoConnectToWiFiSenseHotspots`",
+        "draft_apply_value": "`0` (DWORD)",
+        "draft_undo_value": "`1` (DWORD)",
+        "draft_compatibility_claim": "⚠️ Win10+",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFTweaksWindowsAI": {
+      "match_status": "exact_id_match",
+      "upstream": {
+        "content": "Windows AI - Disable And Remove",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 2,
+        "service_entry_count": 0,
+        "invoke_script_count": 1,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": {
+        "row_number": 21,
+        "display_name": "Disable Windows AI (Copilot/Recall)",
+        "category": "Advanced Tweaks",
+        "draft_type": "Toggle",
+        "draft_operations": "`HKCU\\Software\\Policies\\Microsoft\\Windows\\WindowsCopilot` -> `TurnOffWindowsCopilot`; `HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI` -> `DisableAIDataAnalysis`, `TurnOffSavingSnapshots`",
+        "draft_apply_value": "`1` (DWORD)",
+        "draft_undo_value": "DeleteValue",
+        "draft_compatibility_claim": "❌ Win11 only",
+        "draft_undo_claim": "✅ Yes"
+      }
+    },
+    "WPFchangedns": {
+      "match_status": "source_only",
+      "upstream": {
+        "content": "DNS - Set to:",
+        "category": "z__Advanced Tweaks - CAUTION",
+        "registry_entry_count": 0,
+        "service_entry_count": 0,
+        "invoke_script_count": 0,
+        "undo_script_count": 0,
+        "appx_entry_count": 0
+      },
+      "draft": null
+    }
+  }
+}

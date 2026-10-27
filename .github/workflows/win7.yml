@@ -1,0 +1,27 @@
+name: Win7 target builds
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [i686-win7-windows-msvc, x86_64-win7-windows-msvc]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly and Rust source
+        run: rustup toolchain install nightly-2026-10-27 --profile minimal --component rust-src
+      - name: Build
+        run: cargo +nightly-2026-10-27 build --locked --features experimental-ui --target ${{ matrix.target }} -Z build-std=std,panic_abort --release
+      - name: Audit selected imports
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio installation not found' }
+          $dumpbin = Get-ChildItem -LiteralPath "$vs\VC\Tools\MSVC" -Filter dumpbin.exe -Recurse | Where-Object { $_.FullName -match 'Hostx64\\x64\\dumpbin.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) { throw 'dumpbin not found' }
+          ./scripts/audit-win7-imports.ps1 -Binary 'target/${{ matrix.target }}/release/rustweaker.exe' -Dumpbin $dumpbin

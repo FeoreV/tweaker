@@ -1,0 +1,6 @@
+# The executable is currently a console CLI; revisit subsystem when GUI starts.
+[target.i686-win7-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/SUBSYSTEM:CONSOLE,6.01"]
+
+[target.x86_64-win7-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/SUBSYSTEM:CONSOLE,6.01"]

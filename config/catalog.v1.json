@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "winutil-26.08.19/config/tweaks.json",
+    "sha256": "CEEEAF210309390CE094A16BB3F0467852E915E9F946E7C7C723A9AF1FCBB2F9"
+  },
+  "tweaks": [
+    {
+      "id": "WPFTweaksActivity",
+      "title": "Activity History - Disable",
+      "summary": "Sets the three upstream Activity History policy values to zero; Windows support is unverified.",
+      "source_id": "WPFTweaksActivity",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+            "value_name": "EnableActivityFeed"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [0, 0, 0, 0]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+            "value_name": "PublishUserActivities"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [0, 0, 0, 0]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+            "value_name": "UploadUserActivities"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [0, 0, 0, 0]
+          }
+        }
+      ]
+    }
+  ]
+}
