@@ -1,0 +1,127 @@
+{
+  "review_format": "rustweaker-location-review-v1",
+  "review_only": true,
+  "authorization": "none",
+  "source": {
+    "path": "winutil-26.08.19/config/tweaks.json",
+    "sha256": "CEEEAF210309390CE094A16BB3F0467852E915E9F946E7C7C723A9AF1FCBB2F9"
+  },
+  "tweak": {
+    "id": "WPFTweaksLocation",
+    "title": "Location Tracking - Disable",
+    "summary": "Upstream declarative service and registry apply declarations; review data only, support unverified.",
+    "source_id": "WPFTweaksLocation",
+    "support": {
+      "status": "unverified"
+    },
+    "source_declarations": {
+      "service": [
+        {
+          "Name": "lfsvc",
+          "StartupType": "Disabled",
+          "OriginalType": "Manual"
+        }
+      ],
+      "registry": [
+        {
+          "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\location",
+          "Name": "Value",
+          "Value": "Deny",
+          "Type": "String",
+          "OriginalValue": "Allow"
+        },
+        {
+          "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Sensor\\Overrides\\{BFA794E4-F964-4FDB-90F6-51056BFE4B44}",
+          "Name": "SensorPermissionState",
+          "Value": "0",
+          "Type": "DWord",
+          "OriginalValue": "1"
+        },
+        {
+          "Path": "HKLM:\\SYSTEM\\Maps",
+          "Name": "AutoUpdateEnabled",
+          "Value": "0",
+          "Type": "DWord",
+          "OriginalValue": "1"
+        }
+      ]
+    },
+    "operations": [
+      {
+        "operation": "set_service_start_type_if_expected",
+        "target": {
+          "name": "lfsvc"
+        },
+        "start_type": 4,
+        "expected_start_type": 3
+      },
+      {
+        "operation": "set_registry_value",
+        "target": {
+          "hive": "LocalMachine",
+          "view": "Registry64",
+          "key_path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\location",
+          "value_name": "Value"
+        },
+        "value": {
+          "native_type": 1,
+          "bytes": [
+            68,
+            0,
+            101,
+            0,
+            110,
+            0,
+            121,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "operation": "set_registry_value",
+        "target": {
+          "hive": "LocalMachine",
+          "view": "Registry64",
+          "key_path": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Sensor\\Overrides\\{BFA794E4-F964-4FDB-90F6-51056BFE4B44}",
+          "value_name": "SensorPermissionState"
+        },
+        "value": {
+          "native_type": 4,
+          "bytes": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "operation": "set_registry_value",
+        "target": {
+          "hive": "LocalMachine",
+          "view": "Registry64",
+          "key_path": "SYSTEM\\Maps",
+          "value_name": "AutoUpdateEnabled"
+        },
+        "value": {
+          "native_type": 4,
+          "bytes": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    ]
+  },
+  "review_notes": [
+    "The upstream handler processes service declarations before registry declarations.",
+    "The mockable plan implements the upstream apply guard using OriginalType as the expected service start type and skips the service write on mismatch. This review fixture is not wired to Windows or CLI execution; an external SCM change can still race the write.",
+    "OriginalType supplies the apply guard and OriginalValue is retained as source data. Neither is an undo value, observed pre-state, or backup record.",
+    "Registry64 is the review mapping policy. The upstream PowerShell process registry view and equivalence are not verified; the user, registry context, and target OS are not verified.",
+    "This review fixture is not a production catalog, grants no authorization, and contains no execution or recovery path."
+  ]
+}

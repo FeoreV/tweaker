@@ -1,6 +1,6 @@
 //! Windows filesystem adapter for the registry journal.
 //!
-//! This module supplies exclusive record creation, write-through file I/O,
+//! This module supplies exclusive record creation, explicit file flushing,
 //! bounded rereads, staged commit-marker publication, and per-transaction
 //! validation after restart. Append-only recovery checkpoint generations are bound to the exact
 //! committed prefix and share the transaction lock. Its locked adapter holds
@@ -17,23 +17,42 @@ use super::store::{
     JournalError, JournalScan, JournalStorage, RegistryJournal, TypedJournal, TypedState,
     TypedTarget,
 };
-use crate::engine::recovery::{JournalRecoveryResult, RecoveryBackend, RecoveryCheckpoint};
+use crate::engine::recovery::{
+    BatchRecoveryError, JournalRecoveryError, JournalRecoveryResult, RecoveryBackend,
+    RecoveryCheckpoint, RecoveryError,
+};
 use crate::engine::registry::{ValueState, ValueTarget};
 use crate::engine::transaction::{Backend, Operation, TransactionError};
 use std::collections::BTreeSet;
-use std::fs::{self, File, OpenOptions};
+use std::ffi::OsString;
+use std::fs::File;
+#[cfg(test)]
+use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::windows::ffi::OsStrExt;
-use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
+#[cfg(test)]
+use std::os::windows::fs::MetadataExt;
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(test)]
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use windows_sys::Win32::Foundation::{ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION};
-use windows_sys::Win32::Storage::FileSystem::{
-    MoveFileExW, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_WRITE_THROUGH, MOVEFILE_WRITE_THROUGH,
+use windows_sys::Wdk::Storage::FileSystem::{
+    FileIdBothDirectoryInformation, FileRenameInformation, NtQueryDirectoryFile,
+    NtSetInformationFile, FILE_CREATE, FILE_ID_BOTH_DIR_INFORMATION, FILE_NON_DIRECTORY_FILE,
+    FILE_OPEN, FILE_OPEN_REPARSE_POINT, FILE_RENAME_INFORMATION, FILE_RENAME_INFORMATION_0,
 };
+use windows_sys::Win32::Foundation::{
+    RtlNtStatusToDosError, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION, HANDLE,
+    STATUS_NO_MORE_FILES,
+};
+use windows_sys::Win32::Storage::FileSystem::{
+    FileAttributeTagInfo, GetFileInformationByHandleEx, DELETE, FILE_ATTRIBUTE_DIRECTORY,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
+};
+use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
 const COMMIT_MARKER_VERSION: u32 = 1;
 const MAX_TRANSACTION_RECORDS: usize = 4096;
@@ -44,11 +63,35 @@ const MAX_RECOVERY_ID_ATTEMPTS: usize = 32;
 const REGISTRY_MUTATION_LOCK_FILE: &str = ".registry-mutations.lock";
 const TRANSACTION_DISCOVERY_LOCK_FILE: &str = ".transaction-discovery.lock";
 
+/// A validated candidate fits an empty journal but not this committed prefix.
+#[derive(Debug)]
+struct SnapshotCapacity;
+
+impl std::fmt::Display for SnapshotCapacity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("journal capacity exhausted")
+    }
+}
+impl std::error::Error for SnapshotCapacity {}
+
+fn capacity_error() -> io::Error {
+    io::Error::other(SnapshotCapacity)
+}
+
+fn is_snapshot_capacity<B>(
+    result: &JournalRecoveryResult<B, JournalError<io::Error>, io::Error>,
+) -> bool {
+    matches!(result, Err(JournalRecoveryError::Recovery(BatchRecoveryError::Operation {
+        error: RecoveryError::Persist(JournalError::Preflight(error)), ..
+    })) if error.get_ref().is_some_and(|source| source.is::<SnapshotCapacity>()))
+}
+
 static NEXT_RECOVERY_ID: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum IoBoundary {
+    Preflight,
     RecordCreate,
     RecordWrite,
     RecordFlush,
@@ -102,6 +145,8 @@ pub struct FileJournalStorage {
     _path_guards: Vec<File>,
     #[cfg(test)]
     fault_injector: Option<Arc<dyn IoFaultInjector>>,
+    #[cfg(test)]
+    preflight_limits: Option<(usize, usize)>,
 }
 
 /// Exclusive per-transaction lock. Dropping the guard closes its Windows file
@@ -131,7 +176,7 @@ pub struct RegistryMutationLock {
 /// A disk-backed apply session. It owns its journal lock and acquires the
 /// registry barrier around each complete query -> persist -> apply operation.
 pub struct FileTransactionSession {
-    root: PathBuf,
+    root_storage: FileJournalStorage,
     transaction: String,
     journal: RegistryJournal<LockedJournalStorage>,
 }
@@ -139,7 +184,7 @@ pub struct FileTransactionSession {
 /// Managed apply session for mixed registry/service operations. It owns the
 /// transaction lock and takes the shared barrier for each whole operation.
 pub struct FileTypedTransactionSession {
-    root: PathBuf,
+    root_storage: FileJournalStorage,
     transaction: String,
     journal: TypedJournal<LockedJournalStorage>,
 }
@@ -168,6 +213,8 @@ impl FileJournalStorage {
             _path_guards: path_guards,
             #[cfg(test)]
             fault_injector: None,
+            #[cfg(test)]
+            preflight_limits: None,
         })
     }
 
@@ -180,6 +227,28 @@ impl FileJournalStorage {
             _path_guards: path_guards,
             #[cfg(test)]
             fault_injector: None,
+            #[cfg(test)]
+            preflight_limits: None,
+        })
+    }
+
+    /// Duplicate the retained namespace handles without resolving `root` again.
+    /// File::try_clone duplicates the underlying kernel handles; each resulting
+    /// RAII owner closes only its duplicate, while both remain bound to the
+    /// exact same directory objects even if their display paths are renamed.
+    fn try_clone(&self) -> io::Result<Self> {
+        let path_guards = self
+            ._path_guards
+            .iter()
+            .map(File::try_clone)
+            .collect::<io::Result<Vec<_>>>()?;
+        Ok(Self {
+            root: self.root.clone(),
+            _path_guards: path_guards,
+            #[cfg(test)]
+            fault_injector: self.fault_injector.clone(),
+            #[cfg(test)]
+            preflight_limits: self.preflight_limits,
         })
     }
 
@@ -207,6 +276,152 @@ impl FileJournalStorage {
         Ok(())
     }
 
+    fn root_directory(&self) -> &File {
+        self._path_guards
+            .last()
+            .expect("validated root handle retained")
+    }
+
+    fn open_child(
+        &self,
+        name: &std::ffi::OsStr,
+        access: u32,
+        share: u32,
+        disposition: u32,
+        options: u32,
+    ) -> io::Result<File> {
+        let file = super::windows_security::open_relative_file(
+            self.root_directory(),
+            name,
+            access | FILE_READ_ATTRIBUTES,
+            share,
+            disposition,
+            options | FILE_OPEN_REPARSE_POINT | FILE_NON_DIRECTORY_FILE,
+            std::ptr::null(),
+        )?;
+        let mut tag = FILE_ATTRIBUTE_TAG_INFO {
+            FileAttributes: 0,
+            ReparseTag: 0,
+        };
+        let ok = unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle() as HANDLE,
+                FileAttributeTagInfo,
+                (&mut tag as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+                std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0
+            || tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "journal child is not a regular non-reparse file",
+            ));
+        }
+        Ok(file)
+    }
+
+    fn enumerate_root(&self) -> io::Result<Vec<(OsString, u32)>> {
+        enumerate_directory(self.root_directory())
+    }
+
+    fn read_limited(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid journal filename")
+        })?;
+        let file = self.open_child(
+            name,
+            FILE_GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OPEN,
+            0,
+        )?;
+        if file.metadata()?.len() > limit as u64 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "journal file exceeds its size limit",
+            ));
+        }
+        let mut bytes = Vec::new();
+        file.take((limit + 1) as u64).read_to_end(&mut bytes)?;
+        if bytes.len() > limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "journal file grew beyond its size limit while reading",
+            ));
+        }
+        Ok(bytes)
+    }
+
+    fn publish_marker(&self, pending: &Path, committed: &Path) -> io::Result<()> {
+        let source = pending.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid pending marker filename",
+            )
+        })?;
+        let destination = committed.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid committed marker filename",
+            )
+        })?;
+        let name: Vec<u16> = destination.encode_wide().collect();
+        if name.is_empty() || name.len() > (u32::MAX as usize / 2) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid marker destination",
+            ));
+        }
+        let file = self.open_child(
+            source,
+            DELETE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OPEN,
+            0,
+        )?;
+        let name_offset = std::mem::offset_of!(FILE_RENAME_INFORMATION, FileName);
+        let byte_len = name_offset
+            .checked_add(name.len() * 2)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "marker name too long"))?;
+        let mut storage = vec![0u64; byte_len.div_ceil(std::mem::size_of::<u64>())];
+        let info = FILE_RENAME_INFORMATION {
+            Anonymous: FILE_RENAME_INFORMATION_0 { ReplaceIfExists: 0 },
+            RootDirectory: self.root_directory().as_raw_handle() as HANDLE,
+            FileNameLength: (name.len() * 2) as u32,
+            FileName: [0],
+        };
+        unsafe {
+            let base = storage.as_mut_ptr().cast::<u8>();
+            std::ptr::write(base.cast::<FILE_RENAME_INFORMATION>(), info);
+            std::ptr::copy_nonoverlapping(
+                name.as_ptr(),
+                base.add(name_offset).cast::<u16>(),
+                name.len(),
+            );
+        }
+        let mut io_status: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
+        let status = unsafe {
+            NtSetInformationFile(
+                file.as_raw_handle() as HANDLE,
+                &mut io_status,
+                storage.as_ptr().cast(),
+                byte_len as u32,
+                FileRenameInformation,
+            )
+        };
+        if status < 0 {
+            let code = unsafe { RtlNtStatusToDosError(status) };
+            Err(io::Error::from_raw_os_error(code as i32))
+        } else {
+            Ok(())
+        }
+    }
+
     /// List transaction IDs represented by lock, record, or commit-marker files.
     /// The root discovery lock serializes this enumeration with creation of a
     /// transaction lock file, so a transaction ID cannot appear halfway through
@@ -215,17 +430,15 @@ impl FileJournalStorage {
     pub fn discover_transactions(&self) -> io::Result<Vec<String>> {
         let _discovery_lock = self.lock_transaction_discovery()?;
         let mut transactions = BTreeSet::new();
-        for entry in fs::read_dir(&self.root)? {
-            let entry = entry?;
-            let metadata = fs::symlink_metadata(entry.path())?;
-            if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        for (name, attributes) in self.enumerate_root()? {
+            if attributes & FILE_ATTRIBUTE_DIRECTORY != 0
+                || attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "journal root contains a non-regular entry",
                 ));
             }
-            let name = entry.file_name();
             if name == REGISTRY_MUTATION_LOCK_FILE || name == TRANSACTION_DISCOVERY_LOCK_FILE {
                 continue;
             }
@@ -319,38 +532,23 @@ impl FileJournalStorage {
     }
 
     fn acquire_exclusive_file_lock(&self, path: &Path) -> io::Result<TransactionLock> {
-        let open_exclusive = |create_new: bool| {
-            let mut options = OpenOptions::new();
-            options.write(true).share_mode(0);
-            if create_new {
-                options.create_new(true);
-            }
-            options.open(path)
-        };
-
-        let file = match open_exclusive(true) {
+        let name = path
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid lock filename"))?;
+        let file = match self.open_child(name, FILE_GENERIC_WRITE, 0, FILE_CREATE, 0) {
             Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                let metadata = fs::symlink_metadata(path)?;
-                if !metadata.is_file()
-                    || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-                {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "transaction lock is not a regular file",
-                    ));
-                }
-                open_exclusive(false).map_err(|error| {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => self
+                .open_child(name, FILE_GENERIC_WRITE, 0, FILE_OPEN, 0)
+                .map_err(|error| {
                     if matches!(
                         error.raw_os_error().map(|code| code as u32),
-                        Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)
+                        Some(ERROR_SHARING_VIOLATION) | Some(ERROR_LOCK_VIOLATION)
                     ) {
                         io::Error::new(io::ErrorKind::WouldBlock, "transaction is locked")
                     } else {
                         error
                     }
-                })?
-            }
+                })?,
             Err(error) => return Err(error),
         };
         Ok(TransactionLock { _file: file })
@@ -382,11 +580,13 @@ impl FileJournalStorage {
                 "transaction ID already has journal data",
             ));
         }
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .share_mode(0)
-            .open(path)?;
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid transaction lock filename",
+            )
+        })?;
+        let file = self.open_child(name, FILE_GENERIC_WRITE, 0, FILE_CREATE, 0)?;
         Ok(TransactionLock { _file: file })
     }
 
@@ -464,10 +664,8 @@ impl FileJournalStorage {
         // even when another ID starts with the same characters.
         let prefix = format!("{:03}-{transaction}-", transaction.len());
         let mut sequences = BTreeSet::new();
-        for entry in fs::read_dir(&self.root)? {
-            let entry = entry?;
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else { continue };
+        for (entry, attributes) in self.enumerate_root()? {
+            let Some(name) = entry.to_str() else { continue };
             if !name.starts_with(&prefix) || !name.ends_with(extension) {
                 continue;
             }
@@ -494,8 +692,8 @@ impl FileJournalStorage {
                     "journal sequence is out of range",
                 )
             })?;
-            let metadata = fs::symlink_metadata(entry.path())?;
-            if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            if attributes & FILE_ATTRIBUTE_DIRECTORY != 0
+                || attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -519,10 +717,8 @@ impl FileJournalStorage {
     ) -> io::Result<BTreeSet<u64>> {
         let prefix = format!("{:03}-{transaction}-recovery-", transaction.len());
         let mut sequences = BTreeSet::new();
-        for entry in fs::read_dir(&self.root)? {
-            let entry = entry?;
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else { continue };
+        for (entry, attributes) in self.enumerate_root()? {
+            let Some(name) = entry.to_str() else { continue };
             if !name.starts_with(&prefix) || !name.ends_with(extension) {
                 continue;
             }
@@ -546,8 +742,8 @@ impl FileJournalStorage {
                     "recovery checkpoint generation is out of range",
                 )
             })?;
-            let metadata = fs::symlink_metadata(entry.path())?;
-            if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            if attributes & FILE_ATTRIBUTE_DIRECTORY != 0
+                || attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -564,35 +760,45 @@ impl FileJournalStorage {
         Ok(sequences)
     }
 
-    fn read_limited(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
-        let file = File::open(path)?;
-        if file.metadata()?.len() > limit as u64 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "journal file exceeds its size limit",
-            ));
-        }
-        let mut bytes = Vec::new();
-        file.take((limit + 1) as u64).read_to_end(&mut bytes)?;
-        if bytes.len() > limit {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "journal file grew beyond its size limit while reading",
-            ));
-        }
-        Ok(bytes)
-    }
-
     fn open_for_sync(&self, transaction: &str, sequence: u64) -> io::Result<File> {
-        OpenOptions::new()
-            .write(true)
-            .custom_flags(FILE_FLAG_WRITE_THROUGH)
-            .open(self.record_path(transaction, sequence)?)
+        let path = self.record_path(transaction, sequence)?;
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid record filename")
+        })?;
+        self.open_child(
+            name,
+            FILE_GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OPEN,
+            0,
+        )
     }
 }
 
 impl JournalStorage for LockedJournalStorage {
     type Error = io::Error;
+
+    fn preflight(&mut self, transaction: &str, sequence: u64, data: &[u8]) -> io::Result<()> {
+        #[cfg(test)]
+        self.storage.fail_at(IoBoundary::Preflight)?;
+        #[cfg(test)]
+        if let Some((transaction_limit, checkpoint_limit)) = self.storage.preflight_limits {
+            return self.preflight_with_limits(
+                transaction,
+                sequence,
+                data,
+                transaction_limit,
+                checkpoint_limit,
+            );
+        }
+        self.preflight_with_limits(
+            transaction,
+            sequence,
+            data,
+            MAX_TRANSACTION_BYTES,
+            MAX_CHECKPOINT_BYTES,
+        )
+    }
 
     fn create_new(
         &mut self,
@@ -609,11 +815,17 @@ impl JournalStorage for LockedJournalStorage {
         }
         #[cfg(test)]
         self.storage.fail_at(IoBoundary::RecordCreate)?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .custom_flags(FILE_FLAG_WRITE_THROUGH)
-            .open(self.storage.record_path(transaction, sequence)?)?;
+        let path = self.storage.record_path(transaction, sequence)?;
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid record filename")
+        })?;
+        let mut file = self.storage.open_child(
+            name,
+            FILE_GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_CREATE,
+            0,
+        )?;
         #[cfg(test)]
         self.storage.fail_at(IoBoundary::RecordWrite)?;
         file.write_all(data)?;
@@ -644,21 +856,43 @@ impl JournalStorage for LockedJournalStorage {
         }
         #[cfg(test)]
         self.storage.fail_at(IoBoundary::RecordSyncFlush)?;
-        self.storage
-            .open_for_sync(transaction, sequence)?
-            .sync_all()?;
+        let sync_file = self.storage.open_for_sync(transaction, sequence)?;
+        sync_file.sync_all()?;
 
         #[cfg(test)]
         self.storage.fail_at(IoBoundary::RecordReadback)?;
         let record_bytes = self.read(transaction, sequence)?;
         let record = decode_transaction_record(&record_bytes)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid journal record"))?;
+        // Decoding accepts historical v1 records for recovery. Publishing a
+        // new record must independently enforce the current write policy.
+        super::journal::encode_transaction_record(&record).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "unsupported new journal record")
+        })?;
         if record.transaction_id() != transaction || record.sequence() != sequence {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "journal record identity does not match its filename",
             ));
         }
+        // Validate the bytes read from disk against the committed prefix at the
+        // publication boundary. Direct callers may have skipped preflight, or
+        // the staged record may have changed since that earlier check.
+        #[cfg(test)]
+        let (transaction_limit, checkpoint_limit) = self
+            .storage
+            .preflight_limits
+            .unwrap_or((MAX_TRANSACTION_BYTES, MAX_CHECKPOINT_BYTES));
+        #[cfg(not(test))]
+        let (transaction_limit, checkpoint_limit) = (MAX_TRANSACTION_BYTES, MAX_CHECKPOINT_BYTES);
+        self.validate_candidate(
+            transaction,
+            sequence,
+            &record_bytes,
+            transaction_limit,
+            checkpoint_limit,
+            Some(sequence),
+        )?;
         let marker = CommitMarker {
             version: COMMIT_MARKER_VERSION,
             transaction_id: transaction.to_owned(),
@@ -672,11 +906,19 @@ impl JournalStorage for LockedJournalStorage {
         let pending_marker_path = self.storage.commit_pending_path(transaction, sequence)?;
         #[cfg(test)]
         self.storage.fail_at(IoBoundary::CommitMarkerCreate)?;
-        let mut marker_file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .custom_flags(FILE_FLAG_WRITE_THROUGH)
-            .open(&pending_marker_path)?;
+        let pending_name = pending_marker_path.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid pending marker filename",
+            )
+        })?;
+        let mut marker_file = self.storage.open_child(
+            pending_name,
+            FILE_GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_CREATE,
+            0,
+        )?;
         #[cfg(test)]
         self.storage.fail_at(IoBoundary::CommitMarkerWrite)?;
         marker_file.write_all(&marker_bytes)?;
@@ -686,7 +928,9 @@ impl JournalStorage for LockedJournalStorage {
         drop(marker_file);
         #[cfg(test)]
         self.storage.fail_at(IoBoundary::CommitMarkerReadback)?;
-        if FileJournalStorage::read_limited(&pending_marker_path, MAX_COMMIT_MARKER_BYTES)?
+        if self
+            .storage
+            .read_limited(&pending_marker_path, MAX_COMMIT_MARKER_BYTES)?
             != marker_bytes
         {
             return Err(io::Error::new(
@@ -696,11 +940,15 @@ impl JournalStorage for LockedJournalStorage {
         }
         #[cfg(test)]
         self.storage.fail_at(IoBoundary::CommitMarkerPublish)?;
-        publish_marker(&pending_marker_path, &marker_path)?;
+        self.storage
+            .publish_marker(&pending_marker_path, &marker_path)?;
         #[cfg(test)]
         self.storage
             .fail_at(IoBoundary::CommitMarkerFinalReadback)?;
-        if FileJournalStorage::read_limited(&marker_path, MAX_COMMIT_MARKER_BYTES)? != marker_bytes
+        if self
+            .storage
+            .read_limited(&marker_path, MAX_COMMIT_MARKER_BYTES)?
+            != marker_bytes
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -712,7 +960,7 @@ impl JournalStorage for LockedJournalStorage {
 
     fn read(&mut self, transaction: &str, sequence: u64) -> Result<Vec<u8>, Self::Error> {
         self.check_transaction(transaction)?;
-        FileJournalStorage::read_limited(
+        self.storage.read_limited(
             &self.storage.record_path(transaction, sequence)?,
             MAX_RECORD_BYTES,
         )
@@ -793,7 +1041,7 @@ impl JournalStorage for LockedJournalStorage {
                     "journal record identity does not match its filename",
                 ));
             }
-            let marker_bytes = FileJournalStorage::read_limited(
+            let marker_bytes = self.storage.read_limited(
                 &self.storage.commit_path(transaction, sequence)?,
                 MAX_COMMIT_MARKER_BYTES,
             )?;
@@ -822,6 +1070,115 @@ impl JournalStorage for LockedJournalStorage {
 }
 
 impl LockedJournalStorage {
+    fn preflight_with_limits(
+        &mut self,
+        transaction: &str,
+        sequence: u64,
+        data: &[u8],
+        transaction_limit: usize,
+        checkpoint_limit: usize,
+    ) -> io::Result<()> {
+        self.validate_candidate(
+            transaction,
+            sequence,
+            data,
+            transaction_limit,
+            checkpoint_limit,
+            None,
+        )
+    }
+
+    fn validate_candidate(
+        &mut self,
+        transaction: &str,
+        sequence: u64,
+        data: &[u8],
+        transaction_limit: usize,
+        checkpoint_limit: usize,
+        expected_tail: Option<u64>,
+    ) -> io::Result<()> {
+        self.check_transaction(transaction)?;
+        let scan = self.scan(transaction)?;
+        if scan.incomplete_tail != expected_tail || scan.typed_committed.len() as u64 != sequence {
+            return Err(invalid_checkpoint(
+                "candidate does not follow a complete journal prefix",
+            ));
+        }
+        let candidate = decode_transaction_record(data)
+            .map_err(|_| invalid_checkpoint("invalid candidate journal record"))?;
+        if candidate.transaction_id() != transaction || candidate.sequence() != sequence {
+            return Err(invalid_checkpoint(
+                "candidate journal identity does not match",
+            ));
+        }
+        ensure_recovery_record_fits(&candidate, super::journal::MAX_RECORD_BYTES)?;
+        // Prove the candidate also fits a fresh journal, including the longest
+        // possible newly reserved ID. Failure here is not recoverable by rotation.
+        let mut fresh = candidate.clone();
+        let fresh_id = "a".repeat(128);
+        match &mut fresh {
+            TransactionRecord::Registry(record) => {
+                record.transaction_id = fresh_id.clone();
+                record.sequence = 0;
+            }
+            TransactionRecord::Service(record) => {
+                record.transaction_id = fresh_id.clone();
+                record.sequence = 0;
+            }
+        }
+        let fresh_bytes = super::journal::encode_transaction_record(&fresh)
+            .map_err(|_| invalid_checkpoint("candidate cannot fit a fresh journal"))?;
+        let fresh_checkpoint = Checkpoint::new_typed(&[fresh], "b".repeat(128), 1)
+            .map_err(|_| invalid_checkpoint("candidate cannot form a fresh checkpoint"))?;
+        let fresh_checkpoint_bytes = checkpoint::encode(&fresh_checkpoint)
+            .map_err(|_| invalid_checkpoint("candidate cannot fit a fresh checkpoint"))?;
+        if fresh_bytes.len() > transaction_limit
+            || fresh_checkpoint_bytes
+                .len()
+                .checked_add(9)
+                .is_none_or(|size| size > checkpoint_limit)
+        {
+            return Err(invalid_checkpoint("candidate exceeds fresh journal limits"));
+        }
+        if sequence >= MAX_TRANSACTION_RECORDS as u64 {
+            return Err(capacity_error());
+        }
+        let mut total = data.len();
+        for index in 0..sequence {
+            total = total
+                .checked_add(self.read(transaction, index)?.len())
+                .ok_or_else(|| invalid_checkpoint("transaction size overflow"))?;
+        }
+        if total > transaction_limit {
+            return Err(capacity_error());
+        }
+        let mut records = scan.typed_committed;
+        records.push(candidate);
+        // The longest permitted ID bounds all future recovery IDs. IDs contain
+        // only unescaped ASCII, so equal lengths have equal serialized sizes.
+        let mut recovery_id = "a".repeat(128);
+        if recovery_id == transaction {
+            recovery_id = "b".repeat(128);
+        }
+        let checkpoint = Checkpoint::new_typed(&records, recovery_id, records.len())
+            .map_err(|_| invalid_checkpoint("candidate cannot form a recovery checkpoint"))?;
+        let bytes = match checkpoint::encode(&checkpoint) {
+            Ok(bytes) => bytes,
+            Err(checkpoint::CheckpointError::TooLarge) => return Err(capacity_error()),
+            Err(_) => return Err(invalid_checkpoint("candidate cannot encode checkpoint")),
+        };
+        // The CRC's decimal representation may be longer for a different
+        // recovery ID or progress value (at most ten digits for u32).
+        if bytes
+            .len()
+            .checked_add(9)
+            .is_none_or(|size| size > checkpoint_limit)
+        {
+            return Err(capacity_error());
+        }
+        Ok(())
+    }
+
     fn check_transaction(&self, transaction: &str) -> io::Result<()> {
         if self.transaction == transaction {
             Ok(())
@@ -869,26 +1226,60 @@ impl LockedJournalStorage {
     }
 }
 
-/// Append-only durable progress for reverse recovery. It owns the original
-/// transaction lock so the journal cannot be concurrently extended while the
-/// checkpoint is in use.
-#[derive(Debug)]
-pub struct FileRecoveryCheckpoint {
-    storage: LockedJournalStorage,
-    records: Vec<TransactionRecord>,
-    recovery_transaction_id: String,
-    next_generation: u64,
-    next_exclusive: usize,
-    poisoned: bool,
+// Recovery snapshots reverse the observed intended state and the saved before
+// state. Reserve for the longest legal identity and sequence, and for the
+// tagged representation used by typed recovery even for legacy records.
+fn ensure_recovery_record_fits(record: &TransactionRecord, limit: usize) -> io::Result<()> {
+    let mut recovery = record.clone();
+    match &mut recovery {
+        TransactionRecord::Registry(record) => {
+            record.transaction_id = "a".repeat(128);
+            record.sequence = (MAX_TRANSACTION_RECORDS - 1) as u64;
+            std::mem::swap(&mut record.before, &mut record.intended);
+        }
+        TransactionRecord::Service(record) => {
+            record.transaction_id = "a".repeat(128);
+            record.sequence = (MAX_TRANSACTION_RECORDS - 1) as u64;
+            std::mem::swap(
+                &mut record.before_start_type,
+                &mut record.intended_start_type,
+            );
+        }
+    }
+    let bytes = super::journal::encode_transaction_record(&recovery)
+        .map_err(|_| invalid_checkpoint("recovery snapshot record exceeds format limit"))?;
+    if bytes.len() > limit {
+        return Err(invalid_checkpoint(
+            "recovery snapshot record exceeds format limit",
+        ));
+    }
+    Ok(())
 }
 
-impl FileRecoveryCheckpoint {
-    fn open(
-        mut storage: LockedJournalStorage,
-        records: Vec<TransactionRecord>,
-        initial_recovery_transaction_id: Option<String>,
-    ) -> io::Result<Self> {
-        let transaction = storage.transaction.clone();
+/// A committed legacy checkpoint, preserving its exact on-disk representation.
+#[derive(Debug)]
+struct ValidatedLegacyCheckpoint {
+    generation: u64,
+    next_exclusive: usize,
+    recovery_transaction_id: String,
+    payload_bytes: Vec<u8>,
+    marker_bytes: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct ValidatedLegacyPrefix {
+    committed: Option<ValidatedLegacyCheckpoint>,
+    next_generation: u64,
+}
+
+impl LockedJournalStorage {
+    // Requires the caller to already hold the source lock. Does not reserve,
+    // publish, or alter files; staging entries have no authority.
+    fn validate_legacy_checkpoint_prefix(
+        &mut self,
+        records: &[TransactionRecord],
+    ) -> io::Result<ValidatedLegacyPrefix> {
+        let transaction = self.transaction.clone();
         if records.is_empty()
             || records
                 .iter()
@@ -899,16 +1290,7 @@ impl FileRecoveryCheckpoint {
                 "recovery checkpoint requires records for its locked transaction",
             ));
         }
-        if initial_recovery_transaction_id
-            .as_ref()
-            .is_some_and(|id| !valid_transaction_id(id) || id == &transaction)
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid recovery snapshot transaction ID",
-            ));
-        }
-        let scan = storage.scan(&transaction)?;
+        let scan = self.scan(&transaction)?;
         if scan.incomplete_tail.is_some()
             || scan.typed_committed.len() != records.len()
             || scan.typed_committed != records
@@ -919,13 +1301,13 @@ impl FileRecoveryCheckpoint {
             ));
         }
 
-        let checkpoints = storage
+        let checkpoints = self
             .storage
             .checkpoint_sequences_for(&transaction, ".json")?;
-        let markers = storage
+        let markers = self
             .storage
             .checkpoint_sequences_for(&transaction, ".commit")?;
-        let pending_markers = storage
+        let pending_markers = self
             .storage
             .checkpoint_sequences_for(&transaction, ".commit.pending")?;
         if checkpoints.len() > MAX_CHECKPOINT_GENERATIONS
@@ -967,20 +1349,20 @@ impl FileRecoveryCheckpoint {
         }
 
         let mut current_next = records.len();
-        let mut recovery_transaction_id = None;
+        let mut committed = None;
         for generation in &markers {
-            let bytes = FileJournalStorage::read_limited(
-                &storage.storage.checkpoint_path(&transaction, *generation)?,
+            let bytes = self.storage.read_limited(
+                &self.storage.checkpoint_path(&transaction, *generation)?,
                 MAX_CHECKPOINT_BYTES,
             )?;
             let checkpoint = checkpoint::decode(&bytes)
                 .map_err(|_| invalid_checkpoint("invalid recovery checkpoint"))?;
             let checkpoint_recovery_id = checkpoint.recovery_transaction_id().to_owned();
             let next = checkpoint
-                .validate_typed(&records)
+                .validate_typed(records)
                 .map_err(|_| invalid_checkpoint("checkpoint does not match journal records"))?;
-            let marker_bytes = FileJournalStorage::read_limited(
-                &storage
+            let marker_bytes = self.storage.read_limited(
+                &self
                     .storage
                     .checkpoint_marker_path(&transaction, *generation)?,
                 MAX_COMMIT_MARKER_BYTES,
@@ -997,36 +1379,25 @@ impl FileRecoveryCheckpoint {
                     "recovery checkpoint marker or progress is inconsistent",
                 ));
             }
-            if recovery_transaction_id
+            if committed
                 .as_ref()
-                .is_some_and(|id| id != &checkpoint_recovery_id && next != current_next)
+                .is_some_and(|last: &ValidatedLegacyCheckpoint| {
+                    last.recovery_transaction_id != checkpoint_recovery_id && next != current_next
+                })
             {
                 return Err(invalid_checkpoint(
                     "recovery transaction identity changed while progress changed",
                 ));
             }
-            recovery_transaction_id = Some(checkpoint_recovery_id);
+            committed = Some(ValidatedLegacyCheckpoint {
+                generation: *generation,
+                next_exclusive: next,
+                recovery_transaction_id: checkpoint_recovery_id,
+                payload_bytes: bytes,
+                marker_bytes,
+            });
             current_next = next;
         }
-
-        let recovery_transaction_id = match recovery_transaction_id {
-            Some(persisted_id) => {
-                if initial_recovery_transaction_id
-                    .as_ref()
-                    .is_some_and(|candidate| candidate != &persisted_id)
-                {
-                    return Err(invalid_checkpoint(
-                        "requested recovery ID differs from persisted checkpoint identity",
-                    ));
-                }
-                persisted_id
-            }
-            None => initial_recovery_transaction_id.ok_or_else(|| {
-                invalid_checkpoint(
-                    "new recovery requires a snapshot transaction ID; no committed identity exists",
-                )
-            })?,
-        };
 
         let next_generation = checkpoints
             .last()
@@ -1037,6 +1408,81 @@ impl FileRecoveryCheckpoint {
         if next_generation > MAX_CHECKPOINT_GENERATIONS as u64 {
             return Err(invalid_checkpoint("too many recovery checkpoints"));
         }
+        Ok(ValidatedLegacyPrefix {
+            committed,
+            next_generation,
+        })
+    }
+}
+
+/// Append-only durable progress for reverse recovery. It owns the original
+/// transaction lock so the journal cannot be concurrently extended while the
+/// checkpoint is in use.
+#[derive(Debug)]
+pub struct FileRecoveryCheckpoint {
+    storage: LockedJournalStorage,
+    records: Vec<TransactionRecord>,
+    recovery_transaction_id: String,
+    next_generation: u64,
+    next_exclusive: usize,
+    poisoned: bool,
+}
+
+impl FileRecoveryCheckpoint {
+    fn open(
+        mut storage: LockedJournalStorage,
+        records: Vec<TransactionRecord>,
+        initial_recovery_transaction_id: Option<String>,
+    ) -> io::Result<Self> {
+        let transaction = storage.transaction.clone();
+        if records.is_empty()
+            || records
+                .iter()
+                .any(|record| record.transaction_id() != transaction)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "recovery checkpoint requires records for its locked transaction",
+            ));
+        }
+        if initial_recovery_transaction_id
+            .as_ref()
+            .is_some_and(|id| !valid_transaction_id(id) || id == &transaction)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid recovery snapshot transaction ID",
+            ));
+        }
+        let validated = storage.validate_legacy_checkpoint_prefix(&records)?;
+        let no_committed = validated.committed.is_none();
+        let (recovery_transaction_id, current_next) = match validated.committed {
+            Some(committed) => {
+                if initial_recovery_transaction_id
+                    .as_ref()
+                    .is_some_and(|candidate| candidate != &committed.recovery_transaction_id)
+                {
+                    return Err(invalid_checkpoint(
+                        "requested recovery ID differs from persisted checkpoint identity",
+                    ));
+                }
+                let _ = (
+                    committed.generation,
+                    committed.payload_bytes,
+                    committed.marker_bytes,
+                );
+                (committed.recovery_transaction_id, committed.next_exclusive)
+            }
+            None => (
+                initial_recovery_transaction_id.ok_or_else(|| {
+                    invalid_checkpoint(
+                    "new recovery requires a snapshot transaction ID; no committed identity exists",
+                )
+                })?,
+                records.len(),
+            ),
+        };
+        let next_generation = validated.next_generation;
         let mut store = Self {
             storage,
             records,
@@ -1045,7 +1491,7 @@ impl FileRecoveryCheckpoint {
             next_exclusive: current_next,
             poisoned: false,
         };
-        if markers.is_empty() {
+        if no_committed {
             store.persist_next(current_next)?;
         }
         Ok(store)
@@ -1061,8 +1507,8 @@ impl FileRecoveryCheckpoint {
     }
 
     fn rotate_snapshot_transaction(&mut self) -> io::Result<(String, LockedJournalStorage)> {
-        let root = self.storage.storage.root.clone();
-        let (new_id, snapshot_storage) = reserve_new_recovery_transaction(&root, None)?;
+        let (new_id, snapshot_storage) =
+            reserve_new_recovery_transaction(&self.storage.storage, None)?;
         self.poisoned = true;
         self.recovery_transaction_id = new_id.clone();
         self.persist_generation(self.next_exclusive)?;
@@ -1104,11 +1550,16 @@ impl FileRecoveryCheckpoint {
             .checkpoint_path(&transaction, generation)?;
         #[cfg(test)]
         self.storage.storage.fail_at(IoBoundary::CheckpointCreate)?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .custom_flags(FILE_FLAG_WRITE_THROUGH)
-            .open(&path)?;
+        let checkpoint_name = path
+            .file_name()
+            .ok_or_else(|| invalid_checkpoint("invalid checkpoint filename"))?;
+        let mut file = self.storage.storage.open_child(
+            checkpoint_name,
+            FILE_GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_CREATE,
+            0,
+        )?;
         #[cfg(test)]
         self.storage.storage.fail_at(IoBoundary::CheckpointWrite)?;
         file.write_all(&bytes)?;
@@ -1120,7 +1571,12 @@ impl FileRecoveryCheckpoint {
         self.storage
             .storage
             .fail_at(IoBoundary::CheckpointReadback)?;
-        if FileJournalStorage::read_limited(&path, MAX_CHECKPOINT_BYTES)? != bytes {
+        if self
+            .storage
+            .storage
+            .read_limited(&path, MAX_CHECKPOINT_BYTES)?
+            != bytes
+        {
             return Err(invalid_checkpoint("checkpoint readback mismatch"));
         }
         let marker = CheckpointMarker {
@@ -1143,11 +1599,16 @@ impl FileRecoveryCheckpoint {
         self.storage
             .storage
             .fail_at(IoBoundary::CheckpointMarkerCreate)?;
-        let mut marker_file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .custom_flags(FILE_FLAG_WRITE_THROUGH)
-            .open(&pending_marker_path)?;
+        let pending_name = pending_marker_path
+            .file_name()
+            .ok_or_else(|| invalid_checkpoint("invalid checkpoint marker filename"))?;
+        let mut marker_file = self.storage.storage.open_child(
+            pending_name,
+            FILE_GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_CREATE,
+            0,
+        )?;
         #[cfg(test)]
         self.storage
             .storage
@@ -1163,7 +1624,10 @@ impl FileRecoveryCheckpoint {
         self.storage
             .storage
             .fail_at(IoBoundary::CheckpointMarkerReadback)?;
-        if FileJournalStorage::read_limited(&pending_marker_path, MAX_COMMIT_MARKER_BYTES)?
+        if self
+            .storage
+            .storage
+            .read_limited(&pending_marker_path, MAX_COMMIT_MARKER_BYTES)?
             != marker_bytes
         {
             return Err(invalid_checkpoint("checkpoint marker readback mismatch"));
@@ -1172,12 +1636,18 @@ impl FileRecoveryCheckpoint {
         self.storage
             .storage
             .fail_at(IoBoundary::CheckpointMarkerPublish)?;
-        publish_marker(&pending_marker_path, &marker_path)?;
+        self.storage
+            .storage
+            .publish_marker(&pending_marker_path, &marker_path)?;
         #[cfg(test)]
         self.storage
             .storage
             .fail_at(IoBoundary::CheckpointMarkerFinalReadback)?;
-        if FileJournalStorage::read_limited(&marker_path, MAX_COMMIT_MARKER_BYTES)? != marker_bytes
+        if self
+            .storage
+            .storage
+            .read_limited(&marker_path, MAX_COMMIT_MARKER_BYTES)?
+            != marker_bytes
         {
             return Err(invalid_checkpoint(
                 "published checkpoint marker readback mismatch",
@@ -1232,18 +1702,18 @@ fn generated_recovery_transaction_id() -> String {
 }
 
 fn reserve_new_recovery_transaction(
-    root: &Path,
+    storage: &FileJournalStorage,
     requested_id: Option<String>,
 ) -> io::Result<(String, LockedJournalStorage)> {
     if let Some(id) = requested_id {
-        let storage = FileJournalStorage::open(root)?.create_new_transaction(id.clone())?;
-        return Ok((id, storage));
+        let locked = storage.try_clone()?.create_new_transaction(id.clone())?;
+        return Ok((id, locked));
     }
 
     for _ in 0..MAX_RECOVERY_ID_ATTEMPTS {
         let id = generated_recovery_transaction_id();
-        match FileJournalStorage::open(root)?.create_new_transaction(id.clone()) {
-            Ok(storage) => return Ok((id, storage)),
+        match storage.try_clone()?.create_new_transaction(id.clone()) {
+            Ok(locked) => return Ok((id, locked)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
@@ -1260,6 +1730,7 @@ pub struct FileRecoverySession {
     records: Vec<RegistryRecord>,
     checkpoint: FileRecoveryCheckpoint,
     snapshots: RegistryJournal<LockedJournalStorage>,
+    _root_storage: FileJournalStorage,
     _registry_lock: RegistryMutationLock,
 }
 
@@ -1318,9 +1789,11 @@ impl FileRecoverySession {
         new_recovery_transaction: Option<String>,
     ) -> Result<Self, FileRecoverySessionError> {
         let transaction = transaction.into();
-        let mut original =
-            FileJournalStorage::open(root.as_ref())?.lock_transaction(transaction.clone())?;
-        let registry_lock = FileJournalStorage::open(root.as_ref())?.lock_registry_mutations()?;
+        let root_storage = FileJournalStorage::open(root.as_ref())?;
+        let mut original = root_storage
+            .try_clone()?
+            .lock_transaction(transaction.clone())?;
+        let registry_lock = root_storage.try_clone()?.lock_registry_mutations()?;
         let scan = original.scan(&transaction)?;
         if scan.incomplete_tail.is_some()
             || scan.committed.is_empty()
@@ -1340,8 +1813,9 @@ impl FileRecoverySession {
             }
             let mut checkpoint = original.open_recovery_checkpoint(records.clone(), None)?;
             let recovery_id = checkpoint.recovery_transaction_id().to_owned();
-            let snapshot_storage =
-                FileJournalStorage::open(root.as_ref())?.lock_transaction(recovery_id.clone())?;
+            let snapshot_storage = root_storage
+                .try_clone()?
+                .lock_transaction(recovery_id.clone())?;
             let snapshots = match RegistryJournal::resume(snapshot_storage, recovery_id) {
                 Ok(snapshots) => snapshots,
                 Err(JournalError::IncompleteTail(_)) => checkpoint.rotate_snapshot_journal()?,
@@ -1351,11 +1825,12 @@ impl FileRecoverySession {
                 records,
                 checkpoint,
                 snapshots,
+                _root_storage: root_storage,
                 _registry_lock: registry_lock,
             })
         } else {
             let (recovery_id, snapshot_storage) =
-                reserve_new_recovery_transaction(root.as_ref(), new_recovery_transaction)?;
+                reserve_new_recovery_transaction(&root_storage, new_recovery_transaction)?;
             let checkpoint =
                 original.open_recovery_checkpoint(records.clone(), Some(recovery_id.clone()))?;
             let snapshots = RegistryJournal::new(snapshot_storage, recovery_id);
@@ -1363,6 +1838,7 @@ impl FileRecoverySession {
                 records,
                 checkpoint,
                 snapshots,
+                _root_storage: root_storage,
                 _registry_lock: registry_lock,
             })
         }
@@ -1374,6 +1850,25 @@ impl FileRecoverySession {
 
     pub fn next_exclusive(&self) -> usize {
         self.checkpoint.next_exclusive()
+    }
+
+    fn finish_run<B>(
+        &mut self,
+        result: JournalRecoveryResult<B, JournalError<io::Error>, io::Error>,
+    ) -> JournalRecoveryResult<B, JournalError<io::Error>, io::Error> {
+        if !is_snapshot_capacity(&result) {
+            return result;
+        }
+        match self.checkpoint.rotate_snapshot_journal() {
+            Ok(snapshots) => {
+                self.snapshots = snapshots;
+                Err(JournalRecoveryError::SnapshotRotatedRetryRequired)
+            }
+            Err(error) => {
+                self.checkpoint.poisoned = true;
+                Err(JournalRecoveryError::SnapshotRotation(error))
+            }
+        }
     }
 
     /// Resume reverse recovery from the loaded checkpoint. The supplied
@@ -1388,12 +1883,18 @@ impl FileRecoverySession {
             State = crate::engine::registry::ValueState,
         >,
     {
-        crate::engine::recovery::recover_journal_prefix(
+        if self.checkpoint.poisoned {
+            return Err(JournalRecoveryError::SnapshotRotation(invalid_checkpoint(
+                "reopen poisoned recovery session",
+            )));
+        }
+        let result = crate::engine::recovery::recover_journal_prefix(
             backend,
             &mut self.snapshots,
             &mut self.checkpoint,
             &self.records,
-        )
+        );
+        self.finish_run(result)
     }
 
     /// Run recovery with the guarded Win32 registry backend. The session owns
@@ -1406,14 +1907,21 @@ impl FileRecoverySession {
         JournalError<io::Error>,
         io::Error,
     > {
+        if self.checkpoint.poisoned {
+            return Err(JournalRecoveryError::SnapshotRotation(invalid_checkpoint(
+                "reopen poisoned recovery session",
+            )));
+        }
         let mut backend =
             crate::engine::registry::windows::WindowsRegistryBackend::new(&self._registry_lock);
-        crate::engine::recovery::recover_journal_prefix(
+        let result = crate::engine::recovery::recover_journal_prefix(
             &mut backend,
             &mut self.snapshots,
             &mut self.checkpoint,
             &self.records,
-        )
+        );
+        drop(backend);
+        self.finish_run(result)
     }
 }
 
@@ -1425,6 +1933,7 @@ pub struct FileTypedRecoverySession {
     records: Vec<TransactionRecord>,
     checkpoint: FileRecoveryCheckpoint,
     snapshots: TypedJournal<LockedJournalStorage>,
+    _root_storage: FileJournalStorage,
     _mutation_lock: RegistryMutationLock,
 }
 
@@ -1477,9 +1986,11 @@ impl FileTypedRecoverySession {
         new_recovery_transaction: Option<String>,
     ) -> Result<Self, FileTypedRecoverySessionError> {
         let transaction = transaction.into();
-        let mut original =
-            FileJournalStorage::open(root.as_ref())?.lock_transaction(transaction.clone())?;
-        let mutation_lock = FileJournalStorage::open(root.as_ref())?.lock_system_mutations()?;
+        let root_storage = FileJournalStorage::open(root.as_ref())?;
+        let mut original = root_storage
+            .try_clone()?
+            .lock_transaction(transaction.clone())?;
+        let mutation_lock = root_storage.try_clone()?.lock_system_mutations()?;
         let scan = original.scan(&transaction)?;
         if scan.incomplete_tail.is_some() || scan.typed_committed.is_empty() {
             return Err(FileTypedRecoverySessionError::Storage(invalid_checkpoint(
@@ -1497,8 +2008,9 @@ impl FileTypedRecoverySession {
             }
             let mut checkpoint = original.open_typed_recovery_checkpoint(records.clone(), None)?;
             let recovery_id = checkpoint.recovery_transaction_id().to_owned();
-            let snapshot_storage =
-                FileJournalStorage::open(root.as_ref())?.lock_transaction(recovery_id.clone())?;
+            let snapshot_storage = root_storage
+                .try_clone()?
+                .lock_transaction(recovery_id.clone())?;
             let snapshots = match TypedJournal::resume(snapshot_storage, recovery_id) {
                 Ok(snapshots) => snapshots,
                 Err(JournalError::IncompleteTail(_)) => {
@@ -1510,11 +2022,12 @@ impl FileTypedRecoverySession {
                 records,
                 checkpoint,
                 snapshots,
+                _root_storage: root_storage,
                 _mutation_lock: mutation_lock,
             })
         } else {
             let (recovery_id, snapshot_storage) =
-                reserve_new_recovery_transaction(root.as_ref(), new_recovery_transaction)?;
+                reserve_new_recovery_transaction(&root_storage, new_recovery_transaction)?;
             let checkpoint = original
                 .open_typed_recovery_checkpoint(records.clone(), Some(recovery_id.clone()))?;
             let snapshots = TypedJournal::new(snapshot_storage, recovery_id);
@@ -1522,6 +2035,7 @@ impl FileTypedRecoverySession {
                 records,
                 checkpoint,
                 snapshots,
+                _root_storage: root_storage,
                 _mutation_lock: mutation_lock,
             })
         }
@@ -1535,6 +2049,25 @@ impl FileTypedRecoverySession {
         self.checkpoint.next_exclusive()
     }
 
+    fn finish_run<B>(
+        &mut self,
+        result: JournalRecoveryResult<B, JournalError<io::Error>, io::Error>,
+    ) -> JournalRecoveryResult<B, JournalError<io::Error>, io::Error> {
+        if !is_snapshot_capacity(&result) {
+            return result;
+        }
+        match self.checkpoint.rotate_typed_snapshot_journal() {
+            Ok(snapshots) => {
+                self.snapshots = snapshots;
+                Err(JournalRecoveryError::SnapshotRotatedRetryRequired)
+            }
+            Err(error) => {
+                self.checkpoint.poisoned = true;
+                Err(JournalRecoveryError::SnapshotRotation(error))
+            }
+        }
+    }
+
     pub fn run<B>(
         &mut self,
         backend: &mut B,
@@ -1542,12 +2075,18 @@ impl FileTypedRecoverySession {
     where
         B: crate::engine::recovery::TypedRecoveryBackend,
     {
-        crate::engine::recovery::recover_typed_journal_prefix(
+        if self.checkpoint.poisoned {
+            return Err(JournalRecoveryError::SnapshotRotation(invalid_checkpoint(
+                "reopen poisoned recovery session",
+            )));
+        }
+        let result = crate::engine::recovery::recover_typed_journal_prefix(
             backend,
             &mut self.snapshots,
             &mut self.checkpoint,
             &self.records,
-        )
+        );
+        self.finish_run(result)
     }
 
     /// Run recovery with the guarded Win32 registry/SCM backend. The session
@@ -1560,13 +2099,20 @@ impl FileTypedRecoverySession {
         JournalError<io::Error>,
         io::Error,
     > {
+        if self.checkpoint.poisoned {
+            return Err(JournalRecoveryError::SnapshotRotation(invalid_checkpoint(
+                "reopen poisoned recovery session",
+            )));
+        }
         let mut backend = crate::engine::services::WindowsTypedBackend::new(&self._mutation_lock);
-        crate::engine::recovery::recover_typed_journal_prefix(
+        let result = crate::engine::recovery::recover_typed_journal_prefix(
             &mut backend,
             &mut self.snapshots,
             &mut self.checkpoint,
             &self.records,
-        )
+        );
+        drop(backend);
+        self.finish_run(result)
     }
 }
 
@@ -1574,11 +2120,11 @@ impl FileTransactionSession {
     fn start(root: impl AsRef<Path>, transaction: impl Into<String>) -> io::Result<Self> {
         let transaction = transaction.into();
         let storage = FileJournalStorage::open(root)?;
-        let canonical_root = storage.root.clone();
+        let root_storage = storage.try_clone()?;
         let journal_storage = storage.create_new_transaction(transaction.clone())?;
         let journal = RegistryJournal::new(journal_storage, transaction.clone());
         Ok(Self {
-            root: canonical_root,
+            root_storage,
             transaction,
             journal,
         })
@@ -1598,7 +2144,9 @@ impl FileTransactionSession {
     where
         B: Backend<Target = ValueTarget, Change = ValueState, Snapshot = ValueState>,
     {
-        let _registry_lock = FileJournalStorage::open(&self.root)
+        let _registry_lock = self
+            .root_storage
+            .try_clone()
             .and_then(|storage| storage.lock_registry_mutations())
             .map_err(FileTransactionError::RegistryLock)?;
         self.apply_under_registry_lock(backend, operation)
@@ -1612,7 +2160,9 @@ impl FileTransactionSession {
         (),
         FileTransactionError<crate::engine::registry::windows::WriteError, JournalError<io::Error>>,
     > {
-        let registry_lock = FileJournalStorage::open(&self.root)
+        let registry_lock = self
+            .root_storage
+            .try_clone()
             .and_then(|storage| storage.lock_registry_mutations())
             .map_err(FileTransactionError::RegistryLock)?;
         let mut backend =
@@ -1637,11 +2187,11 @@ impl FileTypedTransactionSession {
     fn start(root: impl AsRef<Path>, transaction: impl Into<String>) -> io::Result<Self> {
         let transaction = transaction.into();
         let storage = FileJournalStorage::open(root)?;
-        let canonical_root = storage.root.clone();
+        let root_storage = storage.try_clone()?;
         let journal_storage = storage.create_new_transaction(transaction.clone())?;
         let journal = TypedJournal::new(journal_storage, transaction.clone());
         Ok(Self {
-            root: canonical_root,
+            root_storage,
             transaction,
             journal,
         })
@@ -1659,10 +2209,36 @@ impl FileTypedTransactionSession {
     where
         B: Backend<Target = TypedTarget, Change = TypedState, Snapshot = TypedState>,
     {
-        let _mutation_lock = FileJournalStorage::open(&self.root)
+        let _mutation_lock = self
+            .root_storage
+            .try_clone()
             .and_then(|storage| storage.lock_system_mutations())
             .map_err(FileTypedTransactionError::MutationLock)?;
         crate::engine::transaction::apply_one(backend, &mut self.journal, operation)
+            .map_err(FileTypedTransactionError::Operation)
+    }
+
+    /// Evaluate the guard inside the mutation barrier against the queried snapshot.
+    /// If accepted, persist that same snapshot before applying the operation.
+    pub fn apply_if<B, F>(
+        &mut self,
+        backend: &mut B,
+        operation: &Operation<TypedTarget, TypedState>,
+        guard: F,
+    ) -> Result<
+        crate::engine::transaction::ApplyOutcome,
+        FileTypedTransactionError<B::Error, JournalError<io::Error>>,
+    >
+    where
+        B: Backend<Target = TypedTarget, Change = TypedState, Snapshot = TypedState>,
+        F: FnOnce(&TypedState) -> bool,
+    {
+        let _mutation_lock = self
+            .root_storage
+            .try_clone()
+            .and_then(|storage| storage.lock_system_mutations())
+            .map_err(FileTypedTransactionError::MutationLock)?;
+        crate::engine::transaction::apply_one_if(backend, &mut self.journal, operation, guard)
             .map_err(FileTypedTransactionError::Operation)
     }
 
@@ -1679,12 +2255,97 @@ impl FileTypedTransactionSession {
             JournalError<io::Error>,
         >,
     > {
-        let mutation_lock = FileJournalStorage::open(&self.root)
+        let mutation_lock = self
+            .root_storage
+            .try_clone()
             .and_then(|storage| storage.lock_system_mutations())
             .map_err(FileTypedTransactionError::MutationLock)?;
         let mut backend = crate::engine::services::WindowsTypedBackend::new(&mutation_lock);
         crate::engine::transaction::apply_one(&mut backend, &mut self.journal, operation)
             .map_err(FileTypedTransactionError::Operation)
+    }
+
+    /// Apply a condition under the same barrier as capture, journal and write.
+    /// This is an engine primitive, not authorization to expose system actions.
+    #[cfg(windows)]
+    pub(crate) fn apply_windows_if<F>(
+        &mut self,
+        operation: &Operation<TypedTarget, TypedState>,
+        guard: F,
+    ) -> Result<
+        crate::engine::transaction::ApplyOutcome,
+        FileTypedTransactionError<
+            crate::engine::tweak_plan::QueryError<crate::engine::services::TypedBackendError>,
+            JournalError<io::Error>,
+        >,
+    >
+    where
+        F: FnOnce(&TypedState) -> bool,
+    {
+        self.with_mutation_lock(|lock, journal| {
+            let mut backend = crate::engine::services::WindowsTypedBackend::new(lock);
+            Self::apply_guarded_under_lock(&mut backend, journal, operation, guard)
+        })
+    }
+
+    #[cfg(windows)]
+    fn apply_guarded_under_lock<B, F>(
+        backend: &mut B,
+        journal: &mut TypedJournal<LockedJournalStorage>,
+        operation: &Operation<TypedTarget, TypedState>,
+        guard: F,
+    ) -> Result<
+        crate::engine::transaction::ApplyOutcome,
+        FileTypedTransactionError<
+            crate::engine::tweak_plan::QueryError<B::Error>,
+            JournalError<io::Error>,
+        >,
+    >
+    where
+        B: Backend<Target = TypedTarget, Change = TypedState, Snapshot = TypedState>,
+        F: FnOnce(&TypedState) -> bool,
+    {
+        let mut backend = crate::engine::tweak_plan::ExistingKeyBackend(backend);
+        crate::engine::transaction::apply_one_if(&mut backend, journal, operation, guard)
+            .map_err(FileTypedTransactionError::Operation)
+    }
+
+    #[cfg(windows)]
+    fn with_mutation_lock<R, E>(
+        &mut self,
+        run: impl FnOnce(
+            &RegistryMutationLock,
+            &mut TypedJournal<LockedJournalStorage>,
+        ) -> Result<R, FileTypedTransactionError<E, JournalError<io::Error>>>,
+    ) -> Result<R, FileTypedTransactionError<E, JournalError<io::Error>>> {
+        let lock = self
+            .root_storage
+            .try_clone()
+            .and_then(|storage| storage.lock_system_mutations())
+            .map_err(FileTypedTransactionError::MutationLock)?;
+        run(&lock, &mut self.journal)
+    }
+
+    #[cfg(all(test, windows))]
+    pub(crate) fn apply_guarded_mock_if<B, F>(
+        &mut self,
+        backend: &mut B,
+        operation: &Operation<TypedTarget, TypedState>,
+        guard: F,
+    ) -> Result<
+        crate::engine::transaction::ApplyOutcome,
+        FileTypedTransactionError<
+            crate::engine::tweak_plan::QueryError<B::Error>,
+            JournalError<io::Error>,
+        >,
+    >
+    where
+        B: Backend<Target = TypedTarget, Change = TypedState, Snapshot = TypedState>,
+        F: FnOnce(&TypedState) -> bool,
+    {
+        self.with_mutation_lock(|_lock, journal| {
+            Self::apply_guarded_under_lock(backend, journal, operation, guard)
+        })
     }
 }
 
@@ -1699,18 +2360,102 @@ fn crc32(bytes: &[u8]) -> u32 {
     !crc
 }
 
-/// Publish a same-root temporary marker with write-through metadata semantics.
-/// The marker file is closed and flushed before this call. This strengthens the
-/// rename ordering but does not certify controller/device power-loss behavior.
-fn publish_marker(pending: &Path, committed: &Path) -> io::Result<()> {
-    let pending: Vec<u16> = pending.as_os_str().encode_wide().chain(Some(0)).collect();
-    let committed: Vec<u16> = committed.as_os_str().encode_wide().chain(Some(0)).collect();
-    let result =
-        unsafe { MoveFileExW(pending.as_ptr(), committed.as_ptr(), MOVEFILE_WRITE_THROUGH) };
-    if result == 0 {
-        return Err(io::Error::last_os_error());
+fn enumerate_directory(directory: &File) -> io::Result<Vec<(OsString, u32)>> {
+    // NT directory queries write variable-sized records containing UTF-16
+    // names. A 2 MiB aligned buffer bounds each native call; repeated calls
+    // continue from the handle's enumeration cursor.
+    const BUFFER_BYTES: usize = 2 * 1024 * 1024;
+    let mut result = Vec::new();
+    let mut restart = 1u8;
+    loop {
+        let mut buffer = vec![0u64; BUFFER_BYTES / std::mem::size_of::<u64>()];
+        let mut iosb: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
+        let status = unsafe {
+            NtQueryDirectoryFile(
+                directory.as_raw_handle() as HANDLE,
+                std::ptr::null_mut(),
+                None,
+                std::ptr::null(),
+                &mut iosb,
+                buffer.as_mut_ptr().cast(),
+                BUFFER_BYTES as u32,
+                FileIdBothDirectoryInformation,
+                0,
+                std::ptr::null(),
+                restart,
+            )
+        };
+        restart = 0;
+        if status == STATUS_NO_MORE_FILES {
+            break;
+        }
+        if status < 0 {
+            let code = unsafe { RtlNtStatusToDosError(status) };
+            return Err(io::Error::from_raw_os_error(code as i32));
+        }
+        let used = iosb.Information;
+        if used == 0 || used > BUFFER_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid directory query byte count",
+            ));
+        }
+        let base = buffer.as_ptr().cast::<u8>();
+        let mut offset = 0usize;
+        loop {
+            let header_size = std::mem::size_of::<FILE_ID_BOTH_DIR_INFORMATION>();
+            if offset.checked_add(header_size).is_none_or(|end| end > used) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "truncated directory query entry",
+                ));
+            }
+            let entry = unsafe {
+                base.add(offset)
+                    .cast::<FILE_ID_BOTH_DIR_INFORMATION>()
+                    .read_unaligned()
+            };
+            let name_bytes = entry.FileNameLength as usize;
+            let name_offset = std::mem::offset_of!(FILE_ID_BOTH_DIR_INFORMATION, FileName);
+            let name_start = offset.checked_add(name_offset).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "directory name offset overflow")
+            })?;
+            if !name_bytes.is_multiple_of(2)
+                || name_start
+                    .checked_add(name_bytes)
+                    .is_none_or(|end| end > used)
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid directory entry name",
+                ));
+            }
+            let name_raw = unsafe { std::slice::from_raw_parts(base.add(name_start), name_bytes) };
+            let name_wide: Vec<u16> = name_raw
+                .chunks_exact(2)
+                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .collect();
+            let name = OsString::from_wide(&name_wide);
+            if name != "." && name != ".." {
+                result.push((name, entry.FileAttributes));
+            }
+            let next = entry.NextEntryOffset as usize;
+            if next == 0 {
+                break;
+            }
+            if next < name_offset + name_bytes
+                || !next.is_multiple_of(std::mem::align_of::<FILE_ID_BOTH_DIR_INFORMATION>())
+                || offset.checked_add(next).is_none_or(|end| end > used)
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid directory entry offset",
+                ));
+            }
+            offset += next;
+        }
     }
-    Ok(())
+    Ok(result)
 }
 
 fn parse_transaction_filename(name: &str) -> io::Result<String> {
@@ -1780,6 +2525,7 @@ mod tests {
     use crate::engine::recovery::{RecoveryBackend, RecoveryCheckpoint, TypedRecoveryBackend};
     use crate::engine::registry::{Hive, RegistryValue, RegistryView, ValueState, ValueTarget};
     use crate::engine::transaction::SnapshotStore;
+    use std::collections::BTreeMap;
     use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Mutex;
@@ -1874,6 +2620,205 @@ mod tests {
         root: PathBuf,
         recovery_id: String,
         backup_marker_visible_before_restore: bool,
+    }
+
+    #[test]
+    fn typed_capacity_rotation_requires_explicit_retry_and_survives_reopen() {
+        let directory = TestDirectory::new();
+        let transaction = "typed_capacity_source";
+        let target = ServiceTarget {
+            name: "ExampleService".into(),
+        };
+        let storage = FileJournalStorage::open(&directory.0)
+            .unwrap()
+            .create_new_transaction(transaction)
+            .unwrap();
+        let mut source = ServiceJournal::new(storage, transaction.into());
+        SnapshotStore::persist(&mut source, &target, &3, &4).unwrap();
+        drop(source.into_storage());
+        let mut session = FileTypedRecoverySession::start_with_id(
+            &directory.0,
+            transaction,
+            "typed_capacity_old",
+        )
+        .unwrap();
+        for _ in 0..10 {
+            SnapshotStore::persist(
+                &mut session.snapshots,
+                &TypedTarget::Service(target.clone()),
+                &TypedState::Service(4),
+                &TypedState::Service(3),
+            )
+            .unwrap();
+        }
+        session
+            .snapshots
+            .test_storage_mut()
+            .storage
+            .preflight_limits = Some((1024, MAX_CHECKPOINT_BYTES));
+        let mut backend = TypedServiceRecoveryMock {
+            start_type: 4,
+            root: directory.0.clone(),
+            recovery_id: "typed_capacity_old".into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            session.run(&mut backend),
+            Err(JournalRecoveryError::SnapshotRotatedRetryRequired)
+        ));
+        assert_eq!(backend.writes, 0);
+        let new_id = session.recovery_transaction_id().to_owned();
+        assert_ne!(new_id, "typed_capacity_old");
+        assert_eq!(session.next_exclusive(), 1);
+        drop(session);
+        let mut session = FileTypedRecoverySession::open(&directory.0, transaction, None).unwrap();
+        assert_eq!(session.recovery_transaction_id(), new_id);
+        let mut backend = TypedServiceRecoveryMock {
+            start_type: 4,
+            root: directory.0.clone(),
+            recovery_id: new_id,
+            ..Default::default()
+        };
+        session.run(&mut backend).unwrap();
+        assert_eq!(backend.writes, 1);
+        assert!(backend.backup_marker_visible_before_restore);
+        assert_eq!(session.next_exclusive(), 0);
+    }
+
+    #[test]
+    fn failed_rotation_poisoned_until_reopen_even_after_marker_publish() {
+        let directory = TestDirectory::new();
+        let transaction = "typed_rotation_fault";
+        let target = ServiceTarget {
+            name: "ExampleService".into(),
+        };
+        let storage = FileJournalStorage::open(&directory.0)
+            .unwrap()
+            .create_new_transaction(transaction)
+            .unwrap();
+        let mut source = ServiceJournal::new(storage, transaction.into());
+        SnapshotStore::persist(&mut source, &target, &3, &4).unwrap();
+        drop(source.into_storage());
+        let mut session = FileTypedRecoverySession::start_with_id(
+            &directory.0,
+            transaction,
+            "typed_rotation_fault_old",
+        )
+        .unwrap();
+        session.checkpoint.storage.storage.fault_injector =
+            Some(fault_on_nth(IoBoundary::CheckpointMarkerFinalReadback, 1));
+        let capacity: JournalRecoveryResult<&'static str, JournalError<io::Error>, io::Error> = Err(
+            JournalRecoveryError::Recovery(BatchRecoveryError::Operation {
+                index: 0,
+                error: RecoveryError::Persist(JournalError::Preflight(capacity_error())),
+            }),
+        );
+        assert!(matches!(
+            session.finish_run(capacity),
+            Err(JournalRecoveryError::SnapshotRotation(_))
+        ));
+        let mut backend = TypedServiceRecoveryMock {
+            start_type: 4,
+            ..Default::default()
+        };
+        assert!(matches!(
+            session.run(&mut backend),
+            Err(JournalRecoveryError::SnapshotRotation(_))
+        ));
+        assert_eq!(backend.writes, 0);
+        drop(session);
+        let reopened = FileTypedRecoverySession::open(&directory.0, transaction, None).unwrap();
+        assert_ne!(
+            reopened.recovery_transaction_id(),
+            "typed_rotation_fault_old"
+        );
+        assert_eq!(reopened.next_exclusive(), 1);
+    }
+
+    #[test]
+    fn recovery_does_not_rotate_for_other_failures() {
+        for failure in ["io", "individual", "corruption", "restore"] {
+            let directory = TestDirectory::new();
+            let transaction = "rotation_non_capacity";
+            let target = ServiceTarget {
+                name: "ExampleService".into(),
+            };
+            let storage = FileJournalStorage::open(&directory.0)
+                .unwrap()
+                .create_new_transaction(transaction)
+                .unwrap();
+            let mut source = ServiceJournal::new(storage, transaction.into());
+            SnapshotStore::persist(&mut source, &target, &3, &4).unwrap();
+            drop(source.into_storage());
+            let mut session = FileTypedRecoverySession::start_with_id(
+                &directory.0,
+                transaction,
+                "rotation_non_capacity_backup",
+            )
+            .unwrap();
+            match failure {
+                "io" => {
+                    session.snapshots.test_storage_mut().storage.fault_injector =
+                        Some(fault_on_nth(IoBoundary::Preflight, 1))
+                }
+                "individual" => {
+                    session
+                        .snapshots
+                        .test_storage_mut()
+                        .storage
+                        .preflight_limits = Some((1, MAX_CHECKPOINT_BYTES))
+                }
+                "corruption" => {
+                    SnapshotStore::persist(
+                        &mut session.snapshots,
+                        &TypedTarget::Service(target.clone()),
+                        &TypedState::Service(4),
+                        &TypedState::Service(3),
+                    )
+                    .unwrap();
+                    let path = session
+                        .snapshots
+                        .test_storage_mut()
+                        .storage
+                        .record_path("rotation_non_capacity_backup", 0)
+                        .unwrap();
+                    fs::write(path, b"corrupt").unwrap();
+                }
+                _ => {}
+            }
+            let mut backend = TypedServiceRecoveryMock {
+                start_type: 4,
+                ..Default::default()
+            };
+            if failure == "restore" {
+                // Check classification of an uncertain restore outcome directly.
+                let result: JournalRecoveryResult<
+                    &'static str,
+                    JournalError<io::Error>,
+                    io::Error,
+                > = Err(JournalRecoveryError::Recovery(
+                    BatchRecoveryError::Operation {
+                        index: 0,
+                        error: RecoveryError::Restore("uncertain"),
+                    },
+                ));
+                assert!(matches!(
+                    session.finish_run(result),
+                    Err(JournalRecoveryError::Recovery(_))
+                ));
+            } else {
+                assert!(matches!(
+                    session.run(&mut backend),
+                    Err(JournalRecoveryError::Recovery(_))
+                ));
+                assert_eq!(backend.writes, 0);
+            }
+            assert_eq!(
+                session.recovery_transaction_id(),
+                "rotation_non_capacity_backup"
+            );
+            assert_eq!(session.next_exclusive(), 1);
+        }
     }
 
     impl TypedRecoveryBackend for TypedServiceRecoveryMock {
@@ -2070,17 +3015,20 @@ mod tests {
         recovery_id: &str,
         injector: Arc<dyn IoFaultInjector>,
     ) -> FileTypedRecoverySession {
-        let mut original =
-            FileJournalStorage::open_with_fault_injector(root, Arc::clone(&injector))
-                .unwrap()
-                .lock_transaction(transaction)
-                .unwrap();
+        let root_storage = FileJournalStorage::open_with_fault_injector(root, injector).unwrap();
+        let mut original = root_storage
+            .try_clone()
+            .unwrap()
+            .lock_transaction(transaction)
+            .unwrap();
         let records = original.scan(transaction).unwrap().typed_committed;
-        let mutation_lock = FileJournalStorage::open(root)
+        let mutation_lock = root_storage
+            .try_clone()
             .unwrap()
             .lock_system_mutations()
             .unwrap();
-        let snapshot_storage = FileJournalStorage::open_with_fault_injector(root, injector)
+        let snapshot_storage = root_storage
+            .try_clone()
             .unwrap()
             .create_new_transaction(recovery_id.to_owned())
             .unwrap();
@@ -2092,6 +3040,7 @@ mod tests {
             records,
             checkpoint,
             snapshots: TypedJournal::new(snapshot_storage, recovery_id.to_owned()),
+            _root_storage: root_storage,
             _mutation_lock: mutation_lock,
         }
     }
@@ -2592,7 +3541,10 @@ mod tests {
         }
 
         let error = FileJournalStorage::open(&junction).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::InvalidInput | io::ErrorKind::PermissionDenied
+        ));
     }
 
     #[test]
@@ -2647,6 +3599,177 @@ mod tests {
     }
 
     #[test]
+    fn journal_io_stays_on_retained_root_handle_after_path_replacement() {
+        let root = TestDirectory::unique_path();
+        let moved = TestDirectory::unique_path();
+        let storage = FileJournalStorage::create_private(&root).unwrap();
+        fs::rename(&root, &moved).unwrap();
+        let replacement = FileJournalStorage::create_private(&root).unwrap();
+        drop(replacement);
+
+        let transaction = "handle_anchor";
+        let mut journal = RegistryJournal::new(
+            storage.create_new_transaction(transaction).unwrap(),
+            transaction.to_owned(),
+        );
+        let target = ValueTarget {
+            hive: Hive::LocalMachine,
+            view: RegistryView::Registry64,
+            key_path: "Software\\Example".into(),
+            value_name: "Setting".into(),
+        };
+        journal
+            .persist(
+                &target,
+                &ValueState::ValueMissing,
+                &ValueState::ValueMissing,
+            )
+            .unwrap();
+        drop(journal.into_storage());
+
+        let names: Vec<_> = fs::read_dir(&moved)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().any(|name| name == "013-handle_anchor.lock"));
+        assert!(names
+            .iter()
+            .any(|name| name == "013-handle_anchor-00000000000000000000.json"));
+        assert!(names
+            .iter()
+            .any(|name| name == "013-handle_anchor-00000000000000000000.commit"));
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        fs::remove_dir_all(&moved).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn journal_io_stays_on_retained_root_handle_after_ancestor_replacement() {
+        let parent = TestDirectory::unique_path();
+        let moved_parent = TestDirectory::unique_path();
+        let root = parent.join("journal");
+        let moved_root = moved_parent.join("journal");
+        fs::create_dir(&parent).unwrap();
+        let storage = FileJournalStorage::create_private(&root).unwrap();
+
+        let ancestor_rename_succeeded = fs::rename(&parent, &moved_parent).is_ok();
+        let original_root = if ancestor_rename_succeeded {
+            &moved_root
+        } else {
+            &root
+        };
+        if ancestor_rename_succeeded {
+            fs::create_dir(&parent).unwrap();
+            drop(FileJournalStorage::create_private(parent.join("journal")).unwrap());
+        }
+
+        let transaction = "ancestor_anchor";
+        let mut journal = RegistryJournal::new(
+            storage.create_new_transaction(transaction).unwrap(),
+            transaction.to_owned(),
+        );
+        let target = ValueTarget {
+            hive: Hive::LocalMachine,
+            view: RegistryView::Registry64,
+            key_path: "Software\\Example".into(),
+            value_name: "Setting".into(),
+        };
+        journal
+            .persist(
+                &target,
+                &ValueState::ValueMissing,
+                &ValueState::ValueMissing,
+            )
+            .unwrap();
+        drop(journal.into_storage());
+
+        let names: Vec<_> = fs::read_dir(original_root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        let prefix = format!("{:03}-{transaction}", transaction.len());
+        assert!(names.iter().any(|name| name == &format!("{prefix}.lock")));
+        assert!(names
+            .iter()
+            .any(|name| name == &format!("{prefix}-00000000000000000000.json")));
+        assert!(names
+            .iter()
+            .any(|name| name == &format!("{prefix}-00000000000000000000.commit")));
+        if ancestor_rename_succeeded {
+            assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+            fs::remove_dir_all(&moved_parent).unwrap();
+            fs::remove_dir_all(&parent).unwrap();
+        } else {
+            fs::remove_dir_all(&parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn transaction_session_keeps_root_locked_and_persists_its_backup() {
+        struct BackendMock(ValueState);
+        impl Backend for BackendMock {
+            type Target = ValueTarget;
+            type Change = ValueState;
+            type Snapshot = ValueState;
+            type Error = &'static str;
+
+            fn query(&mut self, _: &ValueTarget) -> Result<ValueState, Self::Error> {
+                Ok(self.0.clone())
+            }
+
+            fn apply(&mut self, _: &ValueTarget, change: &ValueState) -> Result<(), Self::Error> {
+                self.0 = change.clone();
+                Ok(())
+            }
+        }
+
+        let root = TestDirectory::unique_path();
+        let moved = TestDirectory::unique_path();
+        let transaction = "session_handle_anchor";
+        drop(FileJournalStorage::create_private(&root).unwrap());
+        let mut session = FileJournalStorage::start_transaction(&root, transaction).unwrap();
+        assert!(fs::rename(&root, &moved).is_err());
+
+        let target = ValueTarget {
+            hive: Hive::LocalMachine,
+            view: RegistryView::Registry64,
+            key_path: "Software\\Example".into(),
+            value_name: "Setting".into(),
+        };
+        let intended = ValueState::Present(RegistryValue {
+            native_type: 4,
+            bytes: vec![1, 0, 0, 0],
+        });
+        let mut backend = BackendMock(ValueState::ValueMissing);
+        session
+            .apply(
+                &mut backend,
+                &Operation {
+                    target,
+                    change: intended.clone(),
+                },
+            )
+            .unwrap();
+        assert_eq!(backend.0, intended);
+        drop(session);
+
+        let names: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        let prefix = format!("{:03}-{transaction}", transaction.len());
+        assert!(names.iter().any(|name| name == &format!("{prefix}.lock")));
+        assert!(names
+            .iter()
+            .any(|name| name == &format!("{prefix}-00000000000000000000.json")));
+        assert!(names
+            .iter()
+            .any(|name| name == &format!("{prefix}-00000000000000000000.commit")));
+        assert!(!moved.exists());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn anonymous_token_cannot_replace_the_root_while_storage_is_open() {
         use windows_sys::Win32::Security::{ImpersonateAnonymousToken, RevertToSelf};
         use windows_sys::Win32::System::Threading::GetCurrentThread;
@@ -2663,14 +3786,19 @@ mod tests {
         let moved = TestDirectory::unique_path();
 
         if unsafe { ImpersonateAnonymousToken(GetCurrentThread()) } == 0 {
-            eprintln!(
-                "skipped anonymous path-replacement check: {}",
+            panic!(
+                "cannot run anonymous path-replacement check; impersonation is required: {}",
                 io::Error::last_os_error()
             );
-            return;
         }
         let revert = RevertImpersonation;
         let error = fs::rename(&directory.0, &moved).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        let error = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(directory.0.join("anonymous-entry"))
+            .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         drop(revert);
         assert!(directory.0.is_dir());
@@ -2770,9 +3898,139 @@ mod tests {
 
         let error = fs::rename(&directory.0, &moved).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        let error = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(directory.0.join("restricted-entry"))
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         drop(revert);
         assert!(directory.0.is_dir());
         assert!(!moved.exists());
+        drop(storage);
+    }
+
+    #[test]
+    fn restricted_users_can_create_parent_file_but_not_journal_file() {
+        use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Security::{
+            CreateRestrictedToken, CreateWellKnownSid, ImpersonateLoggedOnUser, RevertToSelf,
+            WinBuiltinUsersSid, SID_AND_ATTRIBUTES, TOKEN_DUPLICATE, TOKEN_QUERY,
+        };
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+        struct OwnedToken(HANDLE);
+        impl Drop for OwnedToken {
+            fn drop(&mut self) {
+                if !self.0.is_null() && self.0 != INVALID_HANDLE_VALUE {
+                    unsafe { CloseHandle(self.0) };
+                }
+            }
+        }
+        struct RevertImpersonation;
+        impl Drop for RevertImpersonation {
+            fn drop(&mut self) {
+                unsafe { RevertToSelf() };
+            }
+        }
+
+        let parent = TestDirectory::with_sddl(
+            "D:P(A;;FA;;;SY)(A;;0x00120022;;;BU)(A;OIIO;0x00120116;;;BU)(A;;FA;;;OW)",
+        );
+        let root = parent.0.join("journal");
+        let storage = FileJournalStorage::create_private(&root)
+            .expect("controlled parent should pass journal-root policy");
+
+        let mut primary = std::ptr::null_mut();
+        assert_ne!(
+            unsafe {
+                OpenProcessToken(
+                    GetCurrentProcess(),
+                    TOKEN_DUPLICATE | TOKEN_QUERY,
+                    &mut primary,
+                )
+            },
+            0,
+            "open process token: {}",
+            io::Error::last_os_error()
+        );
+        let primary = OwnedToken(primary);
+
+        let mut users_sid = [0usize; 16];
+        let mut sid_bytes = std::mem::size_of_val(&users_sid) as u32;
+        assert_ne!(
+            unsafe {
+                CreateWellKnownSid(
+                    WinBuiltinUsersSid,
+                    std::ptr::null_mut(),
+                    users_sid.as_mut_ptr().cast(),
+                    &mut sid_bytes,
+                )
+            },
+            0,
+            "create Users SID: {}",
+            io::Error::last_os_error()
+        );
+        let restricted_sid = SID_AND_ATTRIBUTES {
+            Sid: users_sid.as_mut_ptr().cast(),
+            Attributes: 0,
+        };
+        let mut restricted = std::ptr::null_mut();
+        assert_ne!(
+            unsafe {
+                CreateRestrictedToken(
+                    primary.0,
+                    0,
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    1,
+                    &restricted_sid,
+                    &mut restricted,
+                )
+            },
+            0,
+            "create restricted token: {}",
+            io::Error::last_os_error()
+        );
+        let restricted = OwnedToken(restricted);
+        assert_ne!(
+            unsafe { ImpersonateLoggedOnUser(restricted.0) },
+            0,
+            "impersonate restricted token: {}",
+            io::Error::last_os_error()
+        );
+        let revert = RevertImpersonation;
+
+        let parent_file = parent.0.join("restricted-control");
+        let mut control = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&parent_file)
+            .expect("restricted Users token should create a file in parent");
+        control.write_all(b"test").unwrap();
+        drop(control);
+
+        let root_entry = root.join("restricted-entry");
+        let error = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&root_entry)
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+
+        drop(revert);
+        let root_entry_was_created = root_entry.exists();
+        if root_entry_was_created {
+            fs::remove_file(&root_entry).expect("clean up unexpected journal child file");
+        }
+        fs::remove_file(&parent_file).expect("remove restricted-token control file");
+        assert!(
+            !root_entry_was_created,
+            "denied journal file creation must not leave a file behind"
+        );
+        assert!(root.is_dir());
         drop(storage);
     }
 
@@ -2809,6 +4067,242 @@ mod tests {
             .file_name()
             .to_string_lossy()
             .ends_with(".json")));
+    }
+
+    #[test]
+    fn committed_legacy_service_record_scans_and_opens_checkpoint() {
+        let directory = TestDirectory::new();
+        let transaction = "tx_legacy";
+        let mut storage = FileJournalStorage::open(&directory.0)
+            .unwrap()
+            .lock_transaction(transaction)
+            .unwrap();
+        let bytes = br#"{"record_type":"service","payload":{"version":1,"transaction_id":"tx_legacy","sequence":0,"target":{"name":"old service"},"before_start_type":5,"intended_start_type":3}}"#;
+        // Model bytes and marker produced by the old writer without using today's sync.
+        storage.create_new(transaction, 0, bytes).unwrap();
+        let marker = CommitMarker {
+            version: COMMIT_MARKER_VERSION,
+            transaction_id: transaction.into(),
+            sequence: 0,
+            record_crc32: crc32(bytes),
+        };
+        fs::write(
+            storage.storage.commit_path(transaction, 0).unwrap(),
+            serde_json::to_vec(&marker).unwrap(),
+        )
+        .unwrap();
+        let records = storage.scan(transaction).unwrap().typed_committed;
+        assert_eq!(records.len(), 1);
+        let checkpoint = storage
+            .open_typed_recovery_checkpoint(records, Some("legacy_recovery".into()))
+            .unwrap();
+        assert_eq!(checkpoint.next_exclusive(), 1);
+    }
+
+    #[test]
+    fn direct_sync_does_not_publish_unsupported_new_service_record() {
+        let directory = TestDirectory::new();
+        let transaction = "tx_legacy";
+        let mut storage = FileJournalStorage::open(&directory.0)
+            .unwrap()
+            .lock_transaction(transaction)
+            .unwrap();
+        let bytes = br#"{"record_type":"service","payload":{"version":1,"transaction_id":"tx_legacy","sequence":0,"target":{"name":"old service"},"before_start_type":5,"intended_start_type":3}}"#;
+        storage.create_new(transaction, 0, bytes).unwrap();
+        assert_eq!(
+            storage.sync(transaction, 0).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(!storage
+            .storage
+            .commit_path(transaction, 0)
+            .unwrap()
+            .exists());
+        let scan = storage.scan(transaction).unwrap();
+        assert!(scan.typed_committed.is_empty());
+        assert_eq!(scan.incomplete_tail, Some(0));
+    }
+
+    #[test]
+    fn direct_sync_checks_limits_before_publishing() {
+        for limits in [(1, MAX_CHECKPOINT_BYTES), (MAX_TRANSACTION_BYTES, 1)] {
+            let directory = TestDirectory::new();
+            let transaction = "direct_limit";
+            let mut storage = FileJournalStorage::open(&directory.0)
+                .unwrap()
+                .lock_transaction(transaction)
+                .unwrap();
+            let record = TransactionRecord::Service(ServiceRecord {
+                version: super::super::journal::SERVICE_FORMAT_VERSION,
+                transaction_id: transaction.into(),
+                sequence: 0,
+                target: ServiceTarget {
+                    name: "ExampleService".into(),
+                },
+                before_start_type: 3,
+                intended_start_type: 4,
+            });
+            let bytes = super::super::journal::encode_transaction_record(&record).unwrap();
+            storage.create_new(transaction, 0, &bytes).unwrap();
+            storage.storage.preflight_limits = Some(limits);
+            assert!(storage.sync(transaction, 0).is_err());
+            assert!(!storage
+                .storage
+                .commit_path(transaction, 0)
+                .unwrap()
+                .exists());
+            let scan = storage.scan(transaction).unwrap();
+            assert!(scan.typed_committed.is_empty());
+            assert_eq!(scan.incomplete_tail, Some(0));
+        }
+    }
+
+    #[test]
+    fn direct_sync_revalidates_staged_bytes_and_accepts_valid_record() {
+        let directory = TestDirectory::new();
+        let transaction = "direct_staged";
+        let mut storage = FileJournalStorage::open(&directory.0)
+            .unwrap()
+            .lock_transaction(transaction)
+            .unwrap();
+        let record = TransactionRecord::Service(ServiceRecord {
+            version: super::super::journal::SERVICE_FORMAT_VERSION,
+            transaction_id: transaction.into(),
+            sequence: 0,
+            target: ServiceTarget {
+                name: "ExampleService".into(),
+            },
+            before_start_type: 3,
+            intended_start_type: 4,
+        });
+        let bytes = super::super::journal::encode_transaction_record(&record).unwrap();
+        storage.storage.preflight_limits = Some((bytes.len() + 128, MAX_CHECKPOINT_BYTES));
+        storage.preflight(transaction, 0, &bytes).unwrap();
+        storage.create_new(transaction, 0, &bytes).unwrap();
+        let path = storage.storage.record_path(transaction, 0).unwrap();
+        let mut replacement = record.clone();
+        if let TransactionRecord::Service(service) = &mut replacement {
+            service.transaction_id = "different".into();
+        }
+        fs::write(
+            &path,
+            super::super::journal::encode_transaction_record(&replacement).unwrap(),
+        )
+        .unwrap();
+        assert!(storage.sync(transaction, 0).is_err());
+        assert!(!storage
+            .storage
+            .commit_path(transaction, 0)
+            .unwrap()
+            .exists());
+        if let TransactionRecord::Service(service) = &mut replacement {
+            service.transaction_id = transaction.into();
+            service.target.name = "s".repeat(200);
+        }
+        fs::write(
+            &path,
+            super::super::journal::encode_transaction_record(&replacement).unwrap(),
+        )
+        .unwrap();
+        assert!(storage.sync(transaction, 0).is_err());
+        assert!(!storage
+            .storage
+            .commit_path(transaction, 0)
+            .unwrap()
+            .exists());
+        fs::write(&path, &bytes).unwrap();
+        storage.sync(transaction, 0).unwrap();
+        assert_eq!(
+            storage.scan(transaction).unwrap().typed_committed,
+            vec![record]
+        );
+    }
+
+    #[test]
+    fn append_preflight_rejects_unrecoverable_prefix_before_creating_record() {
+        let directory = TestDirectory::new();
+        let transaction = "tx_preflight";
+        let mut storage = FileJournalStorage::open(&directory.0)
+            .unwrap()
+            .lock_transaction(transaction)
+            .unwrap();
+        let record = RegistryRecord {
+            version: super::super::journal::FORMAT_VERSION,
+            transaction_id: transaction.into(),
+            sequence: 0,
+            target: ValueTarget {
+                hive: Hive::LocalMachine,
+                view: RegistryView::Registry64,
+                key_path: "Software\\Example".into(),
+                value_name: "Setting".into(),
+            },
+            before: ValueState::ValueMissing,
+            intended: ValueState::ValueMissing,
+        };
+        let bytes = super::super::journal::encode(&record).unwrap();
+        assert!(storage
+            .preflight_with_limits(
+                transaction,
+                0,
+                &bytes,
+                bytes.len() - 1,
+                MAX_CHECKPOINT_BYTES
+            )
+            .is_err());
+        assert!(storage
+            .preflight_with_limits(transaction, 0, &bytes, MAX_TRANSACTION_BYTES, 1)
+            .is_err());
+        assert!(!storage
+            .storage
+            .record_path(transaction, 0)
+            .unwrap()
+            .exists());
+        storage.preflight(transaction, 0, &bytes).unwrap();
+        storage.create_new(transaction, 0, &bytes).unwrap();
+        storage.sync(transaction, 0).unwrap();
+        let mut next = record.clone();
+        next.sequence = 1;
+        let next_bytes = super::super::journal::encode(&next).unwrap();
+        let error = storage
+            .preflight_with_limits(
+                transaction,
+                1,
+                &next_bytes,
+                bytes.len() + next_bytes.len() - 1,
+                MAX_CHECKPOINT_BYTES,
+            )
+            .unwrap_err();
+        assert!(error
+            .get_ref()
+            .is_some_and(|source| source.is::<SnapshotCapacity>()));
+        assert!(!storage
+            .storage
+            .record_path(transaction, 1)
+            .unwrap()
+            .exists());
+        assert_eq!(storage.scan(transaction).unwrap().committed, vec![record]);
+    }
+
+    #[test]
+    fn recovery_record_preflight_reserves_long_identity_and_sequence() {
+        let record = TransactionRecord::Registry(RegistryRecord {
+            version: super::super::journal::FORMAT_VERSION,
+            transaction_id: "x".into(),
+            sequence: 0,
+            target: ValueTarget {
+                hive: Hive::LocalMachine,
+                view: RegistryView::Registry64,
+                key_path: "Software\\Example".into(),
+                value_name: "Setting".into(),
+            },
+            before: ValueState::ValueMissing,
+            intended: ValueState::ValueMissing,
+        });
+        let original_len = super::super::journal::encode_transaction_record(&record)
+            .unwrap()
+            .len();
+        assert!(ensure_recovery_record_fits(&record, original_len).is_err());
+        assert!(ensure_recovery_record_fits(&record, original_len + 130).is_ok());
     }
 
     #[test]
@@ -4064,6 +5558,69 @@ mod tests {
         fail_on_write: Option<usize>,
     }
 
+    #[test]
+    fn registry_capacity_rotation_requires_explicit_retry_and_survives_reopen() {
+        let directory = TestDirectory::new();
+        let transaction = "registry_capacity_source";
+        let target = ValueTarget {
+            hive: Hive::LocalMachine,
+            view: RegistryView::Registry64,
+            key_path: "Software\\Example".into(),
+            value_name: "Setting".into(),
+        };
+        let before = ValueState::ValueMissing;
+        let intended = ValueState::Present(RegistryValue {
+            native_type: 1,
+            bytes: vec![1],
+        });
+        let storage = FileJournalStorage::open(&directory.0)
+            .unwrap()
+            .create_new_transaction(transaction)
+            .unwrap();
+        let mut source = RegistryJournal::new(storage, transaction.into());
+        source.persist(&target, &before, &intended).unwrap();
+        drop(source.into_storage());
+        let mut session =
+            FileRecoverySession::start_with_id(&directory.0, transaction, "registry_capacity_old")
+                .unwrap();
+        for _ in 0..10 {
+            session
+                .snapshots
+                .persist(&target, &intended, &before)
+                .unwrap();
+        }
+        session
+            .snapshots
+            .test_storage_mut()
+            .storage
+            .preflight_limits = Some((1024, MAX_CHECKPOINT_BYTES));
+        let mut backend = MockRecoveryBackend {
+            state: intended.clone(),
+            writes: 0,
+            fail_on_write: None,
+        };
+        assert!(matches!(
+            session.run(&mut backend),
+            Err(JournalRecoveryError::SnapshotRotatedRetryRequired)
+        ));
+        assert_eq!(backend.writes, 0);
+        let new_id = session.recovery_transaction_id().to_owned();
+        assert_ne!(new_id, "registry_capacity_old");
+        assert_eq!(session.next_exclusive(), 1);
+        drop(session);
+        let mut session = FileRecoverySession::open(&directory.0, transaction, None).unwrap();
+        assert_eq!(session.recovery_transaction_id(), new_id);
+        let mut backend = MockRecoveryBackend {
+            state: intended,
+            writes: 0,
+            fail_on_write: None,
+        };
+        session.run(&mut backend).unwrap();
+        assert_eq!(backend.writes, 1);
+        assert_eq!(backend.state, before);
+        assert_eq!(session.next_exclusive(), 0);
+    }
+
     struct MutationProbeBackend {
         root: PathBuf,
         transaction: String,
@@ -4206,6 +5763,60 @@ mod tests {
         assert_eq!(recovery_records[0].intended, first_state);
         assert_eq!(recovery_records[1].before, first_state);
         assert_eq!(recovery_records[1].intended, missing);
+    }
+
+    #[test]
+    fn transaction_session_does_not_apply_when_preflight_fails() {
+        let directory = TestDirectory::new();
+        let transaction = "tx_preflight_session";
+        let storage = FileJournalStorage::open_with_fault_injector(
+            &directory.0,
+            fault(IoBoundary::Preflight),
+        )
+        .unwrap();
+        let root_storage = storage.try_clone().unwrap();
+        let locked = storage.create_new_transaction(transaction).unwrap();
+        let mut session = FileTransactionSession {
+            root_storage,
+            transaction: transaction.into(),
+            journal: RegistryJournal::new(locked, transaction.into()),
+        };
+        let before = ValueState::ValueMissing;
+        let mut backend = MutationProbeBackend {
+            root: directory.0.clone(),
+            transaction: transaction.into(),
+            state: before.clone(),
+            saw_registry_lock: false,
+            saw_committed_backup: false,
+            queries: 0,
+            fail_after_write: false,
+        };
+        let operation = Operation {
+            target: ValueTarget {
+                hive: Hive::LocalMachine,
+                view: RegistryView::Registry64,
+                key_path: "Software\\Example".into(),
+                value_name: "Setting".into(),
+            },
+            change: ValueState::Present(RegistryValue {
+                native_type: 4,
+                bytes: vec![1, 0, 0, 0],
+            }),
+        };
+        assert!(matches!(
+            session.apply(&mut backend, &operation),
+            Err(FileTransactionError::Operation(TransactionError::Persist(
+                _
+            )))
+        ));
+        assert_eq!(backend.queries, 1);
+        assert_eq!(backend.state, before);
+        assert!(!backend.saw_committed_backup);
+        assert!(!FileJournalStorage::open(&directory.0)
+            .unwrap()
+            .record_path(transaction, 0)
+            .unwrap()
+            .exists());
     }
 
     #[test]
@@ -4512,6 +6123,271 @@ mod tests {
                 .discover_transactions()
                 .unwrap_err()
                 .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    fn validator_fixture() -> (TestDirectory, LockedJournalStorage, Vec<TransactionRecord>) {
+        let directory = TestDirectory::new();
+        let target = ValueTarget {
+            hive: Hive::LocalMachine,
+            view: RegistryView::Registry64,
+            key_path: "Software\\Example".into(),
+            value_name: "Setting".into(),
+        };
+        let mut journal = RegistryJournal::new(
+            FileJournalStorage::open(&directory.0)
+                .unwrap()
+                .lock_transaction("validator_source")
+                .unwrap(),
+            "validator_source".into(),
+        );
+        journal
+            .persist(
+                &target,
+                &ValueState::ValueMissing,
+                &ValueState::ValueMissing,
+            )
+            .unwrap();
+        let mut storage = journal.into_storage();
+        let records = storage.scan("validator_source").unwrap().typed_committed;
+        (directory, storage, records)
+    }
+
+    fn validator_snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
+        fs::read_dir(root)
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let bytes = if name.ends_with(".lock") {
+                    Vec::new()
+                } else {
+                    fs::read(entry.path()).unwrap()
+                };
+                (name, bytes)
+            })
+            .collect()
+    }
+
+    fn validator_write_commit(
+        storage: &LockedJournalStorage,
+        generation: u64,
+        bytes: &[u8],
+    ) -> Vec<u8> {
+        let transaction = &storage.transaction;
+        fs::write(
+            storage
+                .storage
+                .checkpoint_path(transaction, generation)
+                .unwrap(),
+            bytes,
+        )
+        .unwrap();
+        let marker = serde_json::to_vec(&CheckpointMarker {
+            version: COMMIT_MARKER_VERSION,
+            transaction_id: transaction.clone(),
+            generation,
+            checkpoint_crc32: crc32(bytes),
+        })
+        .unwrap();
+        fs::write(
+            storage
+                .storage
+                .checkpoint_marker_path(transaction, generation)
+                .unwrap(),
+            &marker,
+        )
+        .unwrap();
+        marker
+    }
+
+    #[test]
+    fn legacy_validator_is_read_only_without_committed_checkpoint() {
+        let (directory, mut storage, records) = validator_fixture();
+        fs::write(
+            storage
+                .storage
+                .checkpoint_path("validator_source", 0)
+                .unwrap(),
+            b"partial",
+        )
+        .unwrap();
+        fs::write(
+            storage
+                .storage
+                .checkpoint_marker_pending_path("validator_source", 0)
+                .unwrap(),
+            b"partial",
+        )
+        .unwrap();
+        let before = validator_snapshot(&directory.0);
+        for _ in 0..2 {
+            let result = storage.validate_legacy_checkpoint_prefix(&records).unwrap();
+            assert!(result.committed.is_none());
+            assert_eq!(result.next_generation, 1);
+            assert_eq!(validator_snapshot(&directory.0), before);
+        }
+        let checkpoint = storage
+            .open_typed_recovery_checkpoint(records, Some("validator_undo".into()))
+            .unwrap();
+        assert_eq!(checkpoint.next_exclusive(), 1);
+        assert!(checkpoint
+            .storage
+            .storage
+            .checkpoint_marker_path("validator_source", 1)
+            .unwrap()
+            .exists());
+    }
+
+    #[test]
+    fn legacy_validator_preserves_exact_v3_and_v4_bytes_and_rejects_corruption() {
+        #[derive(serde::Serialize)]
+        struct V3<'a> {
+            version: u32,
+            transaction_id: &'a str,
+            recovery_transaction_id: &'a str,
+            next_exclusive: u64,
+            records: Vec<&'a RegistryRecord>,
+        }
+        let (_directory, mut storage, records) = validator_fixture();
+        let TransactionRecord::Registry(record) = &records[0] else {
+            panic!("expected registry")
+        };
+        let payload = V3 {
+            version: 3,
+            transaction_id: "validator_source",
+            recovery_transaction_id: "validator_undo",
+            next_exclusive: 1,
+            records: vec![record],
+        };
+        let payload_bytes = serde_json::to_vec(&payload).unwrap();
+        let v3 = format!(
+            "{{\"payload\":{},\"crc32\":{}}}",
+            String::from_utf8(payload_bytes.clone()).unwrap(),
+            crc32(&payload_bytes)
+        )
+        .into_bytes();
+        let marker = validator_write_commit(&storage, 0, &v3);
+        let result = storage
+            .validate_legacy_checkpoint_prefix(&records)
+            .unwrap()
+            .committed
+            .unwrap();
+        assert_eq!(
+            (
+                result.generation,
+                result.next_exclusive,
+                result.recovery_transaction_id.as_str()
+            ),
+            (0, 1, "validator_undo")
+        );
+        assert_eq!(result.payload_bytes, v3);
+        assert_eq!(result.marker_bytes, marker);
+        let v4 = checkpoint::encode(
+            &Checkpoint::new_typed(&records, "validator_undo".into(), 0).unwrap(),
+        )
+        .unwrap();
+        let marker = validator_write_commit(&storage, 1, &v4);
+        let result = storage
+            .validate_legacy_checkpoint_prefix(&records)
+            .unwrap()
+            .committed
+            .unwrap();
+        assert_eq!((result.generation, result.next_exclusive), (1, 0));
+        assert_eq!(result.payload_bytes, v4);
+        assert_eq!(result.marker_bytes, marker);
+        fs::write(
+            storage
+                .storage
+                .checkpoint_marker_path("validator_source", 1)
+                .unwrap(),
+            b"corrupt",
+        )
+        .unwrap();
+        assert_eq!(
+            storage
+                .validate_legacy_checkpoint_prefix(&records)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            storage
+                .open_typed_recovery_checkpoint(records, None)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn legacy_validator_rejects_incomplete_or_mismatched_source() {
+        let (directory, mut storage, records) = validator_fixture();
+        assert_eq!(
+            storage
+                .validate_legacy_checkpoint_prefix(&[])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        let mut wrong = records.clone();
+        if let TransactionRecord::Registry(record) = &mut wrong[0] {
+            record.intended = ValueState::Present(RegistryValue {
+                native_type: 4,
+                bytes: vec![1],
+            });
+        }
+        assert_eq!(
+            storage
+                .validate_legacy_checkpoint_prefix(&wrong)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::write(
+            storage.storage.record_path("validator_source", 1).unwrap(),
+            b"partial",
+        )
+        .unwrap();
+        let before = validator_snapshot(&directory.0);
+        assert_eq!(
+            storage
+                .validate_legacy_checkpoint_prefix(&records)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(validator_snapshot(&directory.0), before);
+    }
+
+    #[test]
+    fn legacy_validator_reads_last_generation_but_writer_stays_bounded() {
+        let (_directory, mut storage, records) = validator_fixture();
+        let bytes = checkpoint::encode(
+            &Checkpoint::new_typed(&records, "validator_undo".into(), 1).unwrap(),
+        )
+        .unwrap();
+        for generation in 0..(MAX_CHECKPOINT_GENERATIONS as u64 - 1) {
+            fs::write(
+                storage
+                    .storage
+                    .checkpoint_path("validator_source", generation)
+                    .unwrap(),
+                b"staging",
+            )
+            .unwrap();
+        }
+        let last = MAX_CHECKPOINT_GENERATIONS as u64 - 1;
+        validator_write_commit(&storage, last, &bytes);
+        let result = storage.validate_legacy_checkpoint_prefix(&records).unwrap();
+        assert_eq!(result.next_generation, MAX_CHECKPOINT_GENERATIONS as u64);
+        assert_eq!(result.committed.unwrap().generation, last);
+        let mut writer = storage
+            .open_typed_recovery_checkpoint(records, None)
+            .unwrap();
+        assert_eq!(
+            writer.persist_next(0).unwrap_err().kind(),
             io::ErrorKind::InvalidData
         );
     }

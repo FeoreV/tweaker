@@ -79,6 +79,11 @@ pub enum CatalogOperation {
         target: ServiceTarget,
         start_type: u32,
     },
+    SetServiceStartTypeIfExpected {
+        target: ServiceTarget,
+        start_type: u32,
+        expected_start_type: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,7 +167,18 @@ impl TweakCatalog {
             validate_support(tweak)?;
             for operation in &tweak.operations {
                 match operation {
-                    CatalogOperation::SetServiceStartType { start_type, .. } if *start_type > 4 => {
+                    CatalogOperation::SetServiceStartType { start_type, .. }
+                        if *start_type > super::journal::SERVICE_START_TYPE_MAX =>
+                    {
+                        return Err(CatalogError::InvalidServiceStartType(tweak.id.clone()));
+                    }
+                    CatalogOperation::SetServiceStartTypeIfExpected {
+                        start_type,
+                        expected_start_type,
+                        ..
+                    } if *start_type > super::journal::SERVICE_START_TYPE_MAX
+                        || *expected_start_type > super::journal::SERVICE_START_TYPE_MAX =>
+                    {
                         return Err(CatalogError::InvalidServiceStartType(tweak.id.clone()));
                     }
                     _ if !valid_operation_target(operation) => {
@@ -223,11 +239,9 @@ fn valid_operation_target(operation: &CatalogOperation) -> bool {
                 && !target.key_path.contains('\0')
                 && !target.value_name.contains('\0')
         }
-        CatalogOperation::SetServiceStartType { target, .. } => {
-            !target.name.trim().is_empty()
-                && !target.name.contains('\0')
-                && !target.name.contains('/')
-                && !target.name.contains('\\')
+        CatalogOperation::SetServiceStartType { target, .. }
+        | CatalogOperation::SetServiceStartTypeIfExpected { target, .. } => {
+            super::journal::valid_service_name(&target.name)
         }
     }
 }
@@ -238,6 +252,43 @@ mod tests {
     use crate::engine::registry::{Hive, RegistryView};
 
     const REVIEW_FIXTURE: &[u8] = include_bytes!("../../config/catalog.v1.json");
+    const REGISTRY_REVIEW: &[u8] = include_bytes!("../../config/catalog.registry-review.v1.json");
+
+    #[test]
+    fn registry_review_decodes_without_authorizing_operations() {
+        let catalog = decode_catalog(REGISTRY_REVIEW).unwrap();
+        assert_eq!(catalog.tweaks.len(), 35);
+        assert_eq!(
+            catalog
+                .tweaks
+                .iter()
+                .map(|t| t.operations.len())
+                .sum::<usize>(),
+            76
+        );
+        assert!(catalog
+            .tweaks
+            .iter()
+            .all(|t| t.verified_operations().is_none()));
+    }
+
+    #[test]
+    fn location_review_operations_decode_in_source_order() {
+        let review: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../config/catalog.location-review.v1.json"
+        ))
+        .unwrap();
+        assert_eq!(review["tweak"]["support"]["status"], "unverified");
+        let operations: Vec<CatalogOperation> =
+            serde_json::from_value(review["tweak"]["operations"].clone()).unwrap();
+        assert_eq!(operations.len(), 4);
+        assert!(
+            matches!(&operations[0], CatalogOperation::SetServiceStartTypeIfExpected { target, start_type: 4, expected_start_type: 3 } if target.name == "lfsvc")
+        );
+        assert!(operations[1..]
+            .iter()
+            .all(|op| matches!(op, CatalogOperation::SetRegistryValue { .. })));
+    }
 
     fn sample() -> TweakCatalog {
         TweakCatalog {
@@ -355,6 +406,41 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_service_names_in_catalog_operations() {
+        for name in [
+            "",
+            "has\0nul",
+            "has/forward",
+            "has\\backslash",
+            "has,comma",
+            "has space",
+        ] {
+            let mut catalog = sample();
+            catalog.tweaks[0].operations = vec![CatalogOperation::SetServiceStartType {
+                target: ServiceTarget { name: name.into() },
+                start_type: 3,
+            }];
+            assert_eq!(
+                catalog.validate(),
+                Err(CatalogError::InvalidOperationTarget("ExampleToggle".into())),
+                "service name should be rejected: {name:?}"
+            );
+        }
+
+        let mut catalog = sample();
+        catalog.tweaks[0].operations = vec![CatalogOperation::SetServiceStartType {
+            target: ServiceTarget {
+                name: "A".repeat(super::super::journal::MAX_SERVICE_NAME_UTF16_UNITS + 1),
+            },
+            start_type: 3,
+        }];
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogError::InvalidOperationTarget("ExampleToggle".into()))
+        );
+    }
+
+    #[test]
     fn review_fixture_decodes_as_unverified_data_only_catalog() {
         let catalog = decode_catalog(REVIEW_FIXTURE).unwrap();
         assert_eq!(catalog.schema_version, CATALOG_SCHEMA_VERSION);
@@ -386,6 +472,141 @@ mod tests {
             assert_eq!(value.native_type, 4);
             assert_eq!(value.bytes.as_slice(), &[0, 0, 0, 0]);
         }
+    }
+
+    #[test]
+    fn review_fixture_mock_apply_and_undo_preserves_actual_prestate() {
+        use crate::engine::recovery::{recover_one, RecoveryBackend, RecoveryRecord};
+        use crate::engine::registry::ValueState;
+        use crate::engine::transaction::{apply_one, Backend, Operation, SnapshotStore};
+        use std::collections::HashMap;
+        use std::convert::Infallible;
+
+        #[derive(Default)]
+        struct Registry(HashMap<ValueTarget, ValueState>);
+        impl Backend for Registry {
+            type Target = ValueTarget;
+            type Change = ValueState;
+            type Snapshot = ValueState;
+            type Error = Infallible;
+            fn query(&mut self, target: &ValueTarget) -> Result<ValueState, Infallible> {
+                Ok(self
+                    .0
+                    .get(target)
+                    .cloned()
+                    .unwrap_or(ValueState::ValueMissing))
+            }
+            fn apply(
+                &mut self,
+                target: &ValueTarget,
+                state: &ValueState,
+            ) -> Result<(), Infallible> {
+                self.0.insert(target.clone(), state.clone());
+                Ok(())
+            }
+        }
+        impl RecoveryBackend for Registry {
+            type Target = ValueTarget;
+            type State = ValueState;
+            type Error = Infallible;
+            fn query(&mut self, target: &ValueTarget) -> Result<ValueState, Infallible> {
+                Backend::query(self, target)
+            }
+            fn restore(
+                &mut self,
+                target: &ValueTarget,
+                state: &ValueState,
+            ) -> Result<(), Infallible> {
+                Backend::apply(self, target, state)
+            }
+        }
+        #[derive(Default)]
+        struct Journal(Vec<RecoveryRecord<ValueTarget, ValueState>>);
+        impl SnapshotStore<ValueTarget, ValueState, ValueState> for Journal {
+            type Error = Infallible;
+            fn persist(
+                &mut self,
+                target: &ValueTarget,
+                before: &ValueState,
+                intended: &ValueState,
+            ) -> Result<(), Infallible> {
+                self.0.push(RecoveryRecord {
+                    target: target.clone(),
+                    before: before.clone(),
+                    intended: intended.clone(),
+                });
+                Ok(())
+            }
+        }
+
+        let catalog = decode_catalog(REVIEW_FIXTURE).unwrap();
+        let operations = &catalog.tweaks[0].operations;
+        let CatalogOperation::SetRegistryValue { target: first, .. } = &operations[0] else {
+            panic!("unexpected fixture operation")
+        };
+        let original = ValueState::Present(RegistryValue {
+            native_type: 7,
+            bytes: vec![1, 0, 255, 0],
+        });
+        let mut registry = Registry::default();
+        registry.0.insert(first.clone(), original.clone());
+        let mut journal = Journal::default();
+        for entry in operations {
+            let CatalogOperation::SetRegistryValue { target, value } = entry else {
+                panic!("unexpected fixture operation")
+            };
+            apply_one(
+                &mut registry,
+                &mut journal,
+                &Operation {
+                    target: target.clone(),
+                    change: ValueState::Present(value.clone()),
+                },
+            )
+            .unwrap();
+            assert_eq!(registry.0[target], ValueState::Present(value.clone()));
+        }
+        let records = std::mem::take(&mut journal.0);
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].before, original);
+        assert_eq!(records[1].before, ValueState::ValueMissing);
+        assert_eq!(records[2].before, ValueState::ValueMissing);
+        for record in records.iter().rev() {
+            recover_one(&mut registry, &mut journal, record).unwrap();
+            assert_eq!(registry.0[&record.target], record.before);
+        }
+        assert_eq!(journal.0.len(), 3); // Recovery also snapshots before writing.
+    }
+
+    #[test]
+    fn conditional_service_schema_is_distinct_and_validated() {
+        let json = r#"{"operation":"set_service_start_type_if_expected","target":{"name":"lfsvc"},"start_type":4,"expected_start_type":3}"#;
+        let operation: CatalogOperation = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            serde_json::from_str::<CatalogOperation>(&serde_json::to_string(&operation).unwrap())
+                .unwrap(),
+            operation
+        );
+        let mut catalog = decode_catalog(REVIEW_FIXTURE).unwrap();
+        catalog.tweaks[0].operations = vec![operation];
+        assert!(catalog.validate().is_ok());
+        catalog.tweaks[0].operations = vec![CatalogOperation::SetServiceStartTypeIfExpected {
+            target: ServiceTarget {
+                name: "lfsvc".into(),
+            },
+            start_type: 4,
+            expected_start_type: 5,
+        }];
+        assert!(matches!(
+            catalog.validate(),
+            Err(CatalogError::InvalidServiceStartType(_))
+        ));
+        let legacy =
+            r#"{"operation":"set_service_start_type","target":{"name":"lfsvc"},"start_type":4}"#;
+        assert!(matches!(
+            serde_json::from_str::<CatalogOperation>(legacy),
+            Ok(CatalogOperation::SetServiceStartType { .. })
+        ));
     }
 
     #[test]

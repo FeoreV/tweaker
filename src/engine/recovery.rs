@@ -7,8 +7,8 @@
 
 use super::transaction::SnapshotStore;
 use crate::data::journal::{
-    encode as encode_journal_record, encode_transaction_record, RecordError, RegistryRecord,
-    TransactionRecord,
+    encode as encode_journal_record, encode_existing_transaction_record, RecordError,
+    RegistryRecord, TransactionRecord,
 };
 use crate::data::store::{TypedState, TypedTarget};
 use crate::engine::registry::{ValueState, ValueTarget};
@@ -64,7 +64,7 @@ pub fn typed_recovery_records_from_journal(
         {
             return Err(RecoveryPlanError::InvalidSequence);
         }
-        encode_transaction_record(record).map_err(RecoveryPlanError::InvalidRecord)?;
+        encode_existing_transaction_record(record).map_err(RecoveryPlanError::InvalidRecord)?;
         plan.push(match record {
             TransactionRecord::Registry(record) => RecoveryRecord {
                 target: TypedTarget::Registry(record.target.clone()),
@@ -119,6 +119,8 @@ pub enum RecoveryError<E, S> {
     /// The target differs from both the saved and intended states.
     Conflict,
     InvalidResourceKind,
+    /// A readable legacy service record is outside the supported mutation policy.
+    UnsupportedServiceRecord,
     /// Saving the state before recovery failed; no restore was attempted.
     Persist(S),
     Restore(E),
@@ -194,6 +196,19 @@ where
     ) {
         return Err(RecoveryError::InvalidResourceKind);
     }
+    if let (
+        TypedTarget::Service(target),
+        TypedState::Service(before),
+        TypedState::Service(intended),
+    ) = (&record.target, &record.before, &record.intended)
+    {
+        if !crate::data::journal::valid_service_name(&target.name)
+            || *before > crate::data::journal::SERVICE_START_TYPE_MAX
+            || *intended > crate::data::journal::SERVICE_START_TYPE_MAX
+        {
+            return Err(RecoveryError::UnsupportedServiceRecord);
+        }
+    }
     let current = backend
         .query_typed(&record.target)
         .map_err(RecoveryError::Query)?;
@@ -247,6 +262,10 @@ pub type BatchResult<B, S, C> = Result<(), BatchRecoveryError<B, S, C>>;
 pub enum JournalRecoveryError<B, S, C> {
     InvalidJournal(RecoveryPlanError),
     Recovery(BatchRecoveryError<B, S, C>),
+    /// A full snapshot journal was rotated; the caller must explicitly retry.
+    SnapshotRotatedRetryRequired,
+    /// Rotation failed or its publication outcome is uncertain. Reopen the session.
+    SnapshotRotation(C),
 }
 
 pub type JournalRecoveryResult<B, S, C> = Result<(), JournalRecoveryError<B, S, C>>;
@@ -500,6 +519,24 @@ mod tests {
             before_start_type: 3,
             intended_start_type: 4,
         })
+    }
+
+    #[test]
+    fn legacy_service_is_plannable_but_unsupported_restore_is_blocked() {
+        let bytes = br#"{"record_type":"service","payload":{"version":1,"transaction_id":"tx","sequence":0,"target":{"name":"old service"},"before_start_type":5,"intended_start_type":3}}"#;
+        let entry = crate::data::journal::decode_transaction_record(bytes).unwrap();
+        let plan = typed_recovery_records_from_journal(&[entry]).unwrap();
+        let mut backend = TypedMock {
+            current: Some(TypedState::Service(3)),
+            writes: 0,
+        };
+        let mut store = TypedBackup::default();
+        assert_eq!(
+            recover_typed_one(&mut backend, &mut store, &plan[0]),
+            Err(RecoveryError::UnsupportedServiceRecord)
+        );
+        assert_eq!(backend.writes, 0);
+        assert!(store.records.is_empty());
     }
 
     #[test]

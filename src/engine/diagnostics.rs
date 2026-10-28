@@ -3,7 +3,8 @@ use serde::Serialize;
 use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
 use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use windows_sys::Win32::System::SystemInformation::{
-    GetWindowsDirectoryW, GlobalMemoryStatusEx, MEMORYSTATUSEX, OSVERSIONINFOW,
+    GetPhysicallyInstalledSystemMemory, GetWindowsDirectoryW, GlobalMemoryStatusEx, MEMORYSTATUSEX,
+    OSVERSIONINFOW,
 };
 
 #[derive(Debug, Serialize)]
@@ -14,6 +15,8 @@ pub struct Diagnostics {
     pub cpu_model: Option<String>,
     pub physical_memory_total_bytes: u64,
     pub physical_memory_available_bytes: u64,
+    pub physically_installed_memory_bytes: Option<u64>,
+    pub physically_installed_memory_error: Option<String>,
     pub system_volume: Option<VolumeSpace>,
     pub system_volume_error: Option<String>,
 }
@@ -63,6 +66,16 @@ pub fn collect() -> Result<Diagnostics, DiagnosticsError> {
         Ok(space) => (Some(space), None),
         Err(error) => (None, Some(error.to_string())),
     };
+    let (physically_installed_memory_bytes, physically_installed_memory_error) =
+        installed_memory_result(|| {
+            let mut kilobytes = 0u64;
+            // SAFETY: `kilobytes` is a valid writable output pointer.
+            if unsafe { GetPhysicallyInstalledSystemMemory(&mut kilobytes) } == 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(kilobytes)
+            }
+        });
     Ok(Diagnostics {
         os_major: version.dwMajorVersion,
         os_minor: version.dwMinorVersion,
@@ -70,9 +83,33 @@ pub fn collect() -> Result<Diagnostics, DiagnosticsError> {
         cpu_model: cpu_model(),
         physical_memory_total_bytes: memory.ullTotalPhys,
         physical_memory_available_bytes: memory.ullAvailPhys,
+        physically_installed_memory_bytes,
+        physically_installed_memory_error,
         system_volume,
         system_volume_error,
     })
+}
+
+fn installed_memory_result(
+    query: impl FnOnce() -> Result<u64, std::io::Error>,
+) -> (Option<u64>, Option<String>) {
+    match query().and_then(|kilobytes| {
+        if kilobytes == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "installed physical memory count is zero",
+            ));
+        }
+        kilobytes.checked_mul(1024).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "installed physical memory byte count overflow",
+            )
+        })
+    }) {
+        Ok(bytes) => (Some(bytes), None),
+        Err(error) => (None, Some(error.to_string())),
+    }
 }
 
 fn system_volume_space() -> Result<VolumeSpace, std::io::Error> {
@@ -163,5 +200,42 @@ mod tests {
         } else {
             assert!(data.system_volume_error.is_some());
         }
+        assert_eq!(
+            data.physically_installed_memory_bytes.is_some(),
+            data.physically_installed_memory_error.is_none()
+        );
+        if let Some(installed) = data.physically_installed_memory_bytes {
+            assert!(installed > 0);
+        }
+    }
+
+    #[test]
+    fn installed_memory_result_converts_kilobytes_to_bytes() {
+        assert_eq!(
+            super::installed_memory_result(|| Ok(16 * 1024 * 1024)),
+            (Some(16 * 1024 * 1024 * 1024), None)
+        );
+    }
+
+    #[test]
+    fn installed_memory_result_keeps_api_errors_local() {
+        let (bytes, error) =
+            super::installed_memory_result(|| Err(std::io::Error::from_raw_os_error(13)));
+        assert_eq!(bytes, None);
+        assert!(error.is_some());
+    }
+
+    #[test]
+    fn installed_memory_result_reports_overflow() {
+        let (bytes, error) = super::installed_memory_result(|| Ok(u64::MAX));
+        assert_eq!(bytes, None);
+        assert!(error.unwrap().contains("overflow"));
+    }
+
+    #[test]
+    fn installed_memory_result_rejects_zero() {
+        let (bytes, error) = super::installed_memory_result(|| Ok(0));
+        assert_eq!(bytes, None);
+        assert!(error.unwrap().contains("zero"));
     }
 }

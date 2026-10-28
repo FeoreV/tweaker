@@ -1,0 +1,1844 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "winutil-26.08.19/config/tweaks.json",
+    "sha256": "CEEEAF210309390CE094A16BB3F0467852E915E9F946E7C7C723A9AF1FCBB2F9"
+  },
+  "tweaks": [
+    {
+      "id": "WPFTweaksActivity",
+      "title": "Activity History - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksActivity",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+            "value_name": "EnableActivityFeed"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+            "value_name": "PublishUserActivities"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+            "value_name": "UploadUserActivities"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksRevertStartMenu",
+      "title": "Start Menu Previous Layout - Enable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksRevertStartMenu",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SYSTEM\\ControlSet001\\Control\\FeatureManagement\\Overrides\\8\\3036241548",
+            "value_name": "EnabledState"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksBraveDebloat",
+      "title": "Brave Browser - Debloat",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksBraveDebloat",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "BraveRewardsDisabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "BraveWalletDisabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "BraveVPNDisabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "BraveAIChatEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "BraveStatsPingEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "BraveNewsDisabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "BraveTalkDisabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "TorDisabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "BraveP3AEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "UrlKeyedAnonymizedDataCollectionEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "SafeBrowsingExtendedReportingEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\BraveSoftware\\Brave",
+            "value_name": "MetricsReportingEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksConsumerFeatures",
+      "title": "ConsumerFeatures - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksConsumerFeatures",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+            "value_name": "DisableWindowsConsumerFeatures"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksDeliveryOptimization",
+      "title": "Delivery Optimization - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksDeliveryOptimization",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization",
+            "value_name": "DODownloadMode"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksWPBT",
+      "title": "Windows Platform Binary Table (WPBT) - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksWPBT",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+            "value_name": "DisableWpbtExecution"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksPreventDeviceMetadataFromNetwork",
+      "title": "Prevent Device Companion Apps",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksPreventDeviceMetadataFromNetwork",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\Device Metadata",
+            "value_name": "PreventDeviceMetadataFromNetwork"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksIPv46",
+      "title": "IPv6 - Set IPv4 as Preferred",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksIPv46",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",
+            "value_name": "DisabledComponents"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              32,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleDetailedBSoD",
+      "title": "BSoD Verbose Mode",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleDetailedBSoD",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+            "value_name": "DisplayParameters"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+            "value_name": "DisableEmoticon"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleVerboseLogon",
+      "title": "Logon Verbose Mode",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleVerboseLogon",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+            "value_name": "VerboseStatus"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleS3Sleep",
+      "title": "S3 Sleep",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleS3Sleep",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SYSTEM\\CurrentControlSet\\Control\\Power",
+            "value_name": "PlatformAoAcOverride"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleLoginBlur",
+      "title": "Logon Screen Acrylic Blur",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleLoginBlur",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+            "value_name": "DisableAcrylicBackgroundOnLogon"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksDisableLockscreen",
+      "title": "Lock Screen - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksDisableLockscreen",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+            "value_name": "NoLockScreen"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleLongPaths",
+      "title": "Enable Long Paths",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleLongPaths",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SYSTEM\\CurrentControlSet\\Control\\FileSystem",
+            "value_name": "LongPathsEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksDisableWarningForUnsignedRdp",
+      "title": "RDP Unsigned File Warnings - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksDisableWarningForUnsignedRdp",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\\Client",
+            "value_name": "RedirectionWarningDialogVersion"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Microsoft\\Terminal Server Client",
+            "value_name": "RdpLaunchConsentAccepted"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksEdgeDebloat",
+      "title": "Microsoft Edge - Debloat",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksEdgeDebloat",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\EdgeUpdate",
+            "value_name": "CreateDesktopShortcutDefault"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "PersonalizationReportingEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist",
+            "value_name": "1"
+          },
+          "value": {
+            "native_type": 1,
+            "bytes": [
+              111,
+              0,
+              102,
+              0,
+              101,
+              0,
+              102,
+              0,
+              99,
+              0,
+              103,
+              0,
+              106,
+              0,
+              98,
+              0,
+              101,
+              0,
+              103,
+              0,
+              104,
+              0,
+              112,
+              0,
+              105,
+              0,
+              103,
+              0,
+              112,
+              0,
+              112,
+              0,
+              102,
+              0,
+              109,
+              0,
+              107,
+              0,
+              111,
+              0,
+              108,
+              0,
+              111,
+              0,
+              103,
+              0,
+              102,
+              0,
+              106,
+              0,
+              97,
+              0,
+              100,
+              0,
+              97,
+              0,
+              102,
+              0,
+              100,
+              0,
+              100,
+              0,
+              105,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "ShowRecommendationsEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "HideFirstRunExperience"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "UserFeedbackAllowed"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "ConfigureDoNotTrack"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "AlternateErrorPagesEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "EdgeCollectionsEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "EdgeShoppingAssistantEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "MicrosoftEdgeInsiderPromotionEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "ShowMicrosoftRewards"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "WebWidgetAllowed"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "DiagnosticData"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "EdgeAssetDeliveryServiceEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "WalletDonationEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Edge",
+            "value_name": "DefaultBrowserSettingsCampaignEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksUTC",
+      "title": "Date & Time - Set Time to UTC",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksUTC",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "key_path": "SYSTEM\\CurrentControlSet\\Control\\TimeZoneInformation",
+            "value_name": "RealTimeIsUniversal"
+          },
+          "value": {
+            "native_type": 11,
+            "bytes": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksRemoveHomeAndGallery",
+      "title": "File Explorer Home and Gallery - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksRemoveHomeAndGallery",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Classes\\CLSID\\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}",
+            "value_name": "System.IsPinnedToNameSpaceTree"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Classes\\CLSID\\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}",
+            "value_name": "System.IsPinnedToNameSpaceTree"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+            "value_name": "LaunchTo"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksEndTaskOnTaskbar",
+      "title": "End Task With Right Click - Enable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksEndTaskOnTaskbar",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings",
+            "value_name": "TaskbarEndTask"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksStorage",
+      "title": "Storage Sense - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksStorage",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy",
+            "value_name": "01"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksDisableNotifications",
+      "title": "System Tray Notifications & Calendar - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksDisableNotifications",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Policies\\Microsoft\\Windows\\Explorer",
+            "value_name": "DisableNotificationCenter"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications",
+            "value_name": "ToastEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFTweaksDisableBGapps",
+      "title": "Background Apps - Disable",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFTweaksDisableBGapps",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications",
+            "value_name": "GlobalUserDisabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleBatteryPercentage",
+      "title": "System Tray Battery Percentage",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleBatteryPercentage",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+            "value_name": "IsBatteryPercentageEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleNewOutlook",
+      "title": "Microsoft Outlook New Version",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleNewOutlook",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Microsoft\\Office\\16.0\\Outlook\\Preferences",
+            "value_name": "UseNewOutlook"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Office\\16.0\\Outlook\\Options\\General",
+            "value_name": "HideNewOutlookToggle"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\Options\\General",
+            "value_name": "DoNewOutlookAutoMigration"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\Preferences",
+            "value_name": "NewOutlookMigrationUserSetting"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleScrollbars",
+      "title": "Scrollbars Always Visible",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleScrollbars",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Control Panel\\Accessibility",
+            "value_name": "DynamicScrollbars"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleMouseAcceleration",
+      "title": "Mouse Acceleration",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleMouseAcceleration",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Control Panel\\Mouse",
+            "value_name": "MouseSpeed"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Control Panel\\Mouse",
+            "value_name": "MouseThreshold1"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              6,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Control Panel\\Mouse",
+            "value_name": "MouseThreshold2"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              10,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleNumLock",
+      "title": "Num Lock on Startup",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleNumLock",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "Users",
+            "view": "Registry64",
+            "key_path": ".Default\\Control Panel\\Keyboard",
+            "value_name": "InitialKeyboardIndicators"
+          },
+          "value": {
+            "native_type": 1,
+            "bytes": [
+              50,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Control Panel\\Keyboard",
+            "value_name": "InitialKeyboardIndicators"
+          },
+          "value": {
+            "native_type": 1,
+            "bytes": [
+              50,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleWindowSnapping",
+      "title": "Window Snapping",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleWindowSnapping",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Control Panel\\Desktop",
+            "value_name": "WindowArrangementActive"
+          },
+          "value": {
+            "native_type": 1,
+            "bytes": [
+              49,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleStandbyFix",
+      "title": "S0 Sleep Network Connectivity",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleStandbyFix",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\f15576e8-98b7-4186-b944-eafa664402d9",
+            "value_name": "ACSettingIndex"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleHideSettingsHome",
+      "title": "Settings Home Page",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleHideSettingsHome",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+            "value_name": "SettingsPageVisibility"
+          },
+          "value": {
+            "native_type": 1,
+            "bytes": [
+              115,
+              0,
+              104,
+              0,
+              111,
+              0,
+              119,
+              0,
+              58,
+              0,
+              104,
+              0,
+              111,
+              0,
+              109,
+              0,
+              101,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleBingSearch",
+      "title": "Start Menu Bing Search",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleBingSearch",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+            "value_name": "BingSearchEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleStickyKeys",
+      "title": "Sticky Keys",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleStickyKeys",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Control Panel\\Accessibility\\StickyKeys",
+            "value_name": "Flags"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              250,
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleTaskbarSearch",
+      "title": "Taskbar Search Icon",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleTaskbarSearch",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+            "value_name": "SearchboxTaskbarMode"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleTaskView",
+      "title": "Taskbar Task View Icon",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleTaskView",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+            "value_name": "ShowTaskViewButton"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "WPFToggleGameMode",
+      "title": "Game Mode",
+      "summary": "Upstream registry apply declarations; Windows support is unverified.",
+      "source_id": "WPFToggleGameMode",
+      "support": {
+        "status": "unverified"
+      },
+      "operations": [
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\GameBar",
+            "value_name": "AllowAutoGameMode"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "operation": "set_registry_value",
+          "target": {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "key_path": "Software\\Microsoft\\GameBar",
+            "value_name": "AutoGameModeEnabled"
+          },
+          "value": {
+            "native_type": 4,
+            "bytes": [
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

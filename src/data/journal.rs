@@ -8,6 +8,17 @@ use serde::{Deserialize, Serialize};
 pub const FORMAT_VERSION: u32 = 2;
 pub const SERVICE_FORMAT_VERSION: u32 = 1;
 pub const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_SERVICE_NAME_UTF16_UNITS: usize = 256;
+/// Highest native SCM service start type accepted by this journal schema.
+pub const SERVICE_START_TYPE_MAX: u32 = 4;
+
+/// Check an internal SCM service name before serializing or calling Win32.
+pub fn valid_service_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('\0')
+        && name.encode_utf16().count() <= MAX_SERVICE_NAME_UTF16_UNITS
+        && name.chars().all(|ch| !matches!(ch, '/' | '\\' | ',' | ' '))
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -29,7 +40,8 @@ pub struct ServiceTarget {
 
 /// A journal record for changing only an existing service's startup type.
 /// Values are kept as native SCM integers so snapshots preserve the exact
-/// queried value; the Win32 backend remains responsible for API validation.
+/// queried value. New records reject values outside 0..=4; legacy v1 records
+/// remain readable. The backend checks service-type-specific applicability.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceRecord {
@@ -72,7 +84,7 @@ impl TransactionRecord {
     fn validate(&self) -> Result<(), RecordError> {
         match self {
             Self::Registry(record) => record.validate(),
-            Self::Service(record) => record.validate(),
+            Self::Service(record) => record.validate_structure(),
         }
     }
 }
@@ -84,6 +96,7 @@ pub enum RecordError {
     UnsupportedVersion(u32),
     InvalidTransactionId,
     InvalidTarget,
+    InvalidServiceStartType,
 }
 
 impl RegistryRecord {
@@ -102,7 +115,7 @@ impl RegistryRecord {
 }
 
 impl ServiceRecord {
-    fn validate(&self) -> Result<(), RecordError> {
+    fn validate_structure(&self) -> Result<(), RecordError> {
         if self.version != SERVICE_FORMAT_VERSION {
             return Err(RecordError::UnsupportedVersion(self.version));
         }
@@ -111,6 +124,18 @@ impl ServiceRecord {
         }
         if self.target.name.is_empty() || self.target.name.contains('\0') {
             return Err(RecordError::InvalidTarget);
+        }
+        Ok(())
+    }
+    fn validate_new(&self) -> Result<(), RecordError> {
+        self.validate_structure()?;
+        if !valid_service_name(&self.target.name) {
+            return Err(RecordError::InvalidTarget);
+        }
+        if self.before_start_type > SERVICE_START_TYPE_MAX
+            || self.intended_start_type > SERVICE_START_TYPE_MAX
+        {
+            return Err(RecordError::InvalidServiceStartType);
         }
         Ok(())
     }
@@ -146,7 +171,7 @@ pub fn decode(bytes: &[u8]) -> Result<RegistryRecord, RecordError> {
 /// journals use `encode_transaction_record`; neither codec authorizes service
 /// mutations without the recovery and backend gates.
 pub fn encode_service(record: &ServiceRecord) -> Result<Vec<u8>, RecordError> {
-    record.validate()?;
+    record.validate_new()?;
     let bytes = serde_json::to_vec(record).map_err(RecordError::InvalidJson)?;
     if bytes.len() > MAX_RECORD_BYTES {
         return Err(RecordError::TooLarge);
@@ -160,12 +185,22 @@ pub fn decode_service(bytes: &[u8]) -> Result<ServiceRecord, RecordError> {
         return Err(RecordError::TooLarge);
     }
     let record: ServiceRecord = serde_json::from_slice(bytes).map_err(RecordError::InvalidJson)?;
-    record.validate()?;
+    record.validate_structure()?;
     Ok(record)
 }
 
 /// Encode a tagged registry or service record for a mixed-resource journal.
 pub fn encode_transaction_record(record: &TransactionRecord) -> Result<Vec<u8>, RecordError> {
+    if let TransactionRecord::Service(service) = record {
+        service.validate_new()?;
+    }
+    encode_existing_transaction_record(record)
+}
+
+/// Validate historical records without applying the new-write policy.
+pub(crate) fn encode_existing_transaction_record(
+    record: &TransactionRecord,
+) -> Result<Vec<u8>, RecordError> {
     record.validate()?;
     let bytes = serde_json::to_vec(record).map_err(RecordError::InvalidJson)?;
     if bytes.len() > MAX_RECORD_BYTES {
@@ -288,6 +323,41 @@ mod tests {
     }
 
     #[test]
+    fn service_record_accepts_every_defined_start_type() {
+        for start_type in 0..=SERVICE_START_TYPE_MAX {
+            let mut record = service_record();
+            record.before_start_type = start_type;
+            assert_eq!(
+                decode_service(&encode_service(&record).unwrap()).unwrap(),
+                record
+            );
+
+            record = service_record();
+            record.intended_start_type = start_type;
+            assert_eq!(
+                decode_service(&encode_service(&record).unwrap()).unwrap(),
+                record
+            );
+        }
+    }
+
+    #[test]
+    fn service_name_limit_counts_utf16_code_units() {
+        assert!(valid_service_name(
+            &"A".repeat(MAX_SERVICE_NAME_UTF16_UNITS)
+        ));
+        assert!(!valid_service_name(
+            &"A".repeat(MAX_SERVICE_NAME_UTF16_UNITS + 1)
+        ));
+        assert!(valid_service_name(
+            &"🦀".repeat(MAX_SERVICE_NAME_UTF16_UNITS / 2)
+        ));
+        assert!(!valid_service_name(
+            &"🦀".repeat(MAX_SERVICE_NAME_UTF16_UNITS / 2 + 1)
+        ));
+    }
+
+    #[test]
     fn service_record_rejects_unsupported_versions_invalid_names_and_unknown_fields() {
         let mut bad = service_record();
         bad.version += 1;
@@ -318,6 +388,56 @@ mod tests {
             encode_service(&bad),
             Err(RecordError::InvalidTransactionId)
         ));
+
+        for invalid_name in ["has/forward", "has\\backslash", "has,comma", "has space"] {
+            bad = service_record();
+            bad.target.name = invalid_name.into();
+            assert!(matches!(
+                encode_service(&bad),
+                Err(RecordError::InvalidTarget)
+            ));
+        }
+
+        bad = service_record();
+        bad.target.name = "A".repeat(MAX_SERVICE_NAME_UTF16_UNITS + 1);
+        assert!(matches!(
+            encode_service(&bad),
+            Err(RecordError::InvalidTarget)
+        ));
+
+        bad = service_record();
+        bad.before_start_type = SERVICE_START_TYPE_MAX + 1;
+        assert!(matches!(
+            encode_service(&bad),
+            Err(RecordError::InvalidServiceStartType)
+        ));
+
+        bad = service_record();
+        bad.intended_start_type = u32::MAX;
+        assert!(matches!(
+            encode_service(&bad),
+            Err(RecordError::InvalidServiceStartType)
+        ));
+
+        let mut invalid_json: serde_json::Value =
+            serde_json::from_slice(&encode_service(&service_record()).unwrap()).unwrap();
+        invalid_json["before_start_type"] = serde_json::json!(5);
+        assert!(decode_service(&serde_json::to_vec(&invalid_json).unwrap()).is_ok());
+
+        invalid_json["before_start_type"] = serde_json::json!(3);
+        invalid_json["intended_start_type"] = serde_json::json!(5);
+        assert!(decode_service(&serde_json::to_vec(&invalid_json).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn legacy_service_is_readable_but_cannot_be_encoded_as_new() {
+        let raw = br#"{"record_type":"service","payload":{"version":1,"transaction_id":"tx","sequence":0,"target":{"name":"old service"},"before_start_type":5,"intended_start_type":3}}"#;
+        let record = decode_transaction_record(raw).unwrap();
+        assert!(matches!(
+            encode_transaction_record(&record),
+            Err(RecordError::InvalidTarget)
+        ));
+        assert!(encode_existing_transaction_record(&record).is_ok());
     }
 
     #[test]

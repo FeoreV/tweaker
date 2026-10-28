@@ -9,6 +9,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify catalog fixture transcription
+        run: python scripts/verify-catalog-fixture.py
       - name: Install verified Rust toolchain
         run: rustup toolchain install 1.97.1-x86_64-pc-windows-msvc --profile minimal --component rustfmt --component clippy
       - name: Check
@@ -16,9 +18,9 @@ jobs:
       - name: Check experimental UI feature
         run: cargo +1.97.1-x86_64-pc-windows-msvc check --locked --features experimental-ui
       - name: Test
-        run: cargo +1.97.1-x86_64-pc-windows-msvc test --locked
+        run: cargo +1.97.1-x86_64-pc-windows-msvc test --locked -- --test-threads=1
       - name: Test experimental UI host
-        run: cargo +1.97.1-x86_64-pc-windows-msvc test --locked --features experimental-ui
+        run: cargo +1.97.1-x86_64-pc-windows-msvc test --locked --features experimental-ui -- --test-threads=1
       - name: Format
         run: cargo +1.97.1-x86_64-pc-windows-msvc fmt --all -- --check
       - name: Clippy

@@ -14,6 +14,16 @@ use crate::engine::transaction::SnapshotStore;
 
 pub trait JournalStorage {
     type Error;
+    /// Reject a candidate before creating any file if the resulting log cannot
+    /// be recovered within the storage implementation's limits.
+    fn preflight(
+        &mut self,
+        _transaction: &str,
+        _sequence: u64,
+        _data: &[u8],
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
     /// Create a new record exclusively. Must never replace an existing record.
     fn create_new(
         &mut self,
@@ -46,6 +56,7 @@ pub struct JournalScan {
 #[derive(Debug)]
 pub enum JournalError<E> {
     Format(RecordError),
+    Preflight(E),
     Create(E),
     Sync(E),
     Read(E),
@@ -67,6 +78,10 @@ pub struct RegistryJournal<S> {
     poisoned: bool,
 }
 impl<S> RegistryJournal<S> {
+    #[cfg(test)]
+    pub(crate) fn test_storage_mut(&mut self) -> &mut S {
+        &mut self.storage
+    }
     pub fn new(storage: S, transaction: String) -> Self {
         Self {
             storage,
@@ -190,6 +205,9 @@ impl<S: JournalStorage> SnapshotStore<ServiceTarget, u32, u32> for ServiceJourna
             intended_start_type: *intended,
         });
         let bytes = encode_transaction_record(&record).map_err(JournalError::Format)?;
+        self.storage
+            .preflight(&self.transaction, self.next, &bytes)
+            .map_err(JournalError::Preflight)?;
         self.poisoned = true;
         self.storage
             .create_new(&self.transaction, self.next, &bytes)
@@ -238,6 +256,10 @@ pub struct TypedJournal<S> {
 }
 
 impl<S> TypedJournal<S> {
+    #[cfg(test)]
+    pub(crate) fn test_storage_mut(&mut self) -> &mut S {
+        &mut self.storage
+    }
     pub fn new(storage: S, transaction: String) -> Self {
         Self {
             storage,
@@ -331,6 +353,9 @@ impl<S: JournalStorage> SnapshotStore<TypedTarget, TypedState, TypedState> for T
             _ => return Err(JournalError::UnsupportedRecordKind),
         };
         let bytes = encode_transaction_record(&record).map_err(JournalError::Format)?;
+        self.storage
+            .preflight(&self.transaction, self.next, &bytes)
+            .map_err(JournalError::Preflight)?;
         self.poisoned = true;
         self.storage
             .create_new(&self.transaction, self.next, &bytes)
@@ -374,6 +399,9 @@ impl<S: JournalStorage> SnapshotStore<ValueTarget, ValueState, ValueState> for R
             intended: intended.clone(),
         };
         let bytes = encode(&record).map_err(JournalError::Format)?;
+        self.storage
+            .preflight(&self.transaction, self.next, &bytes)
+            .map_err(JournalError::Preflight)?;
         // An error may leave a partial or complete record; never reuse this writer.
         self.poisoned = true;
         self.storage
@@ -413,6 +441,13 @@ mod tests {
     }
     impl JournalStorage for Storage {
         type Error = &'static str;
+        fn preflight(&mut self, _: &str, _: u64, _: &[u8]) -> Result<(), Self::Error> {
+            if self.fail == Some("preflight") {
+                Err("preflight")
+            } else {
+                Ok(())
+            }
+        }
         fn create_new(&mut self, id: &str, seq: u64, data: &[u8]) -> Result<(), Self::Error> {
             if self.fail == Some("create") {
                 return Err("create");
@@ -485,6 +520,66 @@ mod tests {
             value_name: "Test".into(),
         }
     }
+    #[test]
+    fn all_journal_writers_stop_before_create_on_preflight_failure() {
+        let storage = || Storage {
+            fail: Some("preflight"),
+            ..Default::default()
+        };
+        let mut registry = RegistryJournal::new(storage(), "tx".into());
+        assert!(matches!(
+            registry.persist(
+                &target(),
+                &ValueState::ValueMissing,
+                &ValueState::ValueMissing
+            ),
+            Err(JournalError::Preflight("preflight"))
+        ));
+        assert!(registry.into_storage().records.is_empty());
+        let service_target = ServiceTarget {
+            name: "Example".into(),
+        };
+        let mut service = ServiceJournal::new(storage(), "tx".into());
+        assert!(matches!(
+            service.persist(&service_target, &3, &4),
+            Err(JournalError::Preflight("preflight"))
+        ));
+        assert!(service.into_storage().records.is_empty());
+        let mut typed = TypedJournal::new(storage(), "tx".into());
+        assert!(matches!(
+            typed.persist(
+                &TypedTarget::Service(service_target),
+                &TypedState::Service(3),
+                &TypedState::Service(4)
+            ),
+            Err(JournalError::Preflight("preflight"))
+        ));
+        assert!(typed.into_storage().records.is_empty());
+    }
+
+    #[test]
+    fn new_unsupported_service_records_never_reach_storage() {
+        for (name, before, intended) in [("old service", 3, 4), ("valid", 5, 4), ("valid", 3, 5)] {
+            let target = ServiceTarget { name: name.into() };
+            let mut service = ServiceJournal::new(Storage::default(), "tx".into());
+            assert!(matches!(
+                service.persist(&target, &before, &intended),
+                Err(JournalError::Format(_))
+            ));
+            assert!(service.into_storage().records.is_empty());
+            let mut typed = TypedJournal::new(Storage::default(), "tx".into());
+            assert!(matches!(
+                typed.persist(
+                    &TypedTarget::Service(target),
+                    &TypedState::Service(before),
+                    &TypedState::Service(intended)
+                ),
+                Err(JournalError::Format(_))
+            ));
+            assert!(typed.into_storage().records.is_empty());
+        }
+    }
+
     #[test]
     fn typed_journal_writes_both_resource_kinds_and_resumes_sequence() {
         let mut journal = TypedJournal::new(Storage::default(), "tx".into());

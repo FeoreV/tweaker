@@ -6,9 +6,19 @@
 use std::fs::File;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::{FromRawHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
 use std::path::{Component, Path, PathBuf, Prefix};
-use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_ALL, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
+use windows_sys::Wdk::Storage::FileSystem::{
+    NtCreateFile, FILE_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_REPARSE_POINT,
+    FILE_SYNCHRONOUS_IO_NONALERT,
+};
+use windows_sys::Win32::Foundation::RtlNtStatusToDosError;
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GENERIC_ALL, HANDLE, INVALID_HANDLE_VALUE, STATUS_ACCESS_DENIED,
+    STATUS_OBJECT_NAME_COLLISION, STATUS_OBJECT_NAME_NOT_FOUND, STATUS_OBJECT_PATH_NOT_FOUND,
+    UNICODE_STRING,
+};
 use windows_sys::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1,
     SE_FILE_OBJECT,
@@ -18,19 +28,22 @@ use windows_sys::Win32::Security::{
     GetTokenInformation, IsValidAcl, IsWellKnownSid, LookupAccountNameW, TokenOwner,
     WinBuiltinAdministratorsSid, WinCreatorOwnerRightsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE,
     ACCESS_DENIED_ACE, ACE_HEADER, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
-    SECURITY_ATTRIBUTES, SE_DACL_PROTECTED, TOKEN_OWNER, TOKEN_QUERY, WELL_KNOWN_SID_TYPE,
+    SE_DACL_PROTECTED, TOKEN_OWNER, TOKEN_QUERY, WELL_KNOWN_SID_TYPE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateDirectoryW, CreateFileW, FileAttributeTagInfo, GetDriveTypeW,
-    GetFileInformationByHandleEx, GetVolumeInformationW, GetVolumePathNameW, RemoveDirectoryW,
-    FILE_ALL_ACCESS, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
-    FILE_ATTRIBUTE_TAG_INFO, FILE_DELETE_CHILD, FILE_FLAG_BACKUP_SEMANTICS,
-    FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    OPEN_EXISTING, READ_CONTROL,
+    CreateFileW, FileAttributeTagInfo, FileDispositionInfo, GetDriveTypeW,
+    GetFileInformationByHandleEx, GetFinalPathNameByHandleW, GetVolumeInformationByHandleW,
+    GetVolumePathNameW, SetFileInformationByHandle, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY,
+    FILE_ALL_ACCESS, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
+    FILE_ATTRIBUTE_TAG_INFO, FILE_DELETE_CHILD, FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, READ_CONTROL,
 };
+use windows_sys::Win32::System::Kernel::OBJ_CASE_INSENSITIVE;
 use windows_sys::Win32::System::SystemServices::FILE_PERSISTENT_ACLS;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows_sys::Win32::System::WindowsProgramming::{DRIVE_FIXED, DRIVE_REMOTE, DRIVE_REMOVABLE};
+use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
 const GENERIC_DELETE_CHILD: u32 = FILE_DELETE_CHILD | 0x0001_0000;
 const GENERIC_WRITE_DAC_OWNER: u32 = 0x0004_0000 | 0x0008_0000;
@@ -199,51 +212,37 @@ fn create_private_root_with_sddl(root: &Path, sddl: &str) -> io::Result<(PathBuf
             "journal root must be below an existing parent directory",
         ));
     }
-    validate_storage_volume(&paths[paths.len() - 2])?;
     let context = SecurityContext::current()?;
     let parent_guards = open_and_validate_chain(&paths[..paths.len() - 1], &context, false)?;
-
-    match std::fs::symlink_metadata(paths.last().expect("non-empty directory chain")) {
-        Ok(_) => {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "private journal root must not already exist",
-            ));
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
+    validate_storage_volume(parent_guards.last().expect("validated parent"))?;
 
     let descriptor = security_descriptor_from_sddl(sddl)?;
-    let attributes = SECURITY_ATTRIBUTES {
-        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-        lpSecurityDescriptor: descriptor.0,
-        bInheritHandle: 0,
-    };
-    let path = wide_path(paths.last().expect("non-empty directory chain"));
-    let created = unsafe { CreateDirectoryW(path.as_ptr(), &attributes) };
-    drop(parent_guards);
-    if created == 0 {
-        return Err(io::Error::last_os_error());
+    let parent = parent_guards.last().expect("validated parent chain");
+    let leaf_name = paths.last().unwrap().file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "journal root leaf has no name")
+    })?;
+    let created = open_relative_file(
+        parent,
+        leaf_name,
+        FILE_ALL_ACCESS,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        windows_sys::Wdk::Storage::FileSystem::FILE_CREATE,
+        FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
+        descriptor.0,
+    )?;
+    if let Err(validation_error) = validate_directory_handle(&created, true, &context) {
+        let cleanup = mark_delete_on_handle(&created);
+        return match cleanup {
+            Ok(()) => Err(validation_error),
+            Err(cleanup_error) => Err(io::Error::new(
+                validation_error.kind(),
+                format!("new root validation failed ({validation_error}); exact-handle cleanup failed ({cleanup_error})"),
+            )),
+        };
     }
-
-    match open_private_root(root) {
-        Ok(opened) => Ok(opened),
-        Err(validation_error) => {
-            let path = wide_path(paths.last().expect("non-empty directory chain"));
-            let removed = unsafe { RemoveDirectoryW(path.as_ptr()) };
-            if removed == 0 {
-                let cleanup_error = io::Error::last_os_error();
-                return Err(io::Error::new(
-                    validation_error.kind(),
-                    format!(
-                        "new journal root failed ACL validation ({validation_error}); empty-root cleanup also failed ({cleanup_error})"
-                    ),
-                ));
-            }
-            Err(validation_error)
-        }
-    }
+    let mut guards = parent_guards;
+    guards.push(created);
+    Ok((paths.last().unwrap().clone(), guards))
 }
 
 #[cfg(test)]
@@ -259,17 +258,108 @@ pub(super) fn open_private_root(root: &Path) -> io::Result<(PathBuf, Vec<File>)>
             "journal root must be below an existing parent directory",
         ));
     }
-    validate_storage_volume(&paths[paths.len() - 2])?;
     let context = SecurityContext::current()?;
     let guards = open_and_validate_chain(&paths, &context, true)?;
+    validate_storage_volume(guards.last().expect("validated root"))?;
     Ok((
         paths.last().expect("non-empty directory chain").clone(),
         guards,
     ))
 }
 
+/// Open one child relative to an already validated directory handle. The
+/// directory handle, not its display path, is the namespace anchor.
+pub(super) fn open_relative_file(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    desired_access: u32,
+    share_access: u32,
+    disposition: u32,
+    create_options: u32,
+    security_descriptor: *const core::ffi::c_void,
+) -> io::Result<File> {
+    let wide: Vec<u16> = name.encode_wide().collect();
+    if wide.is_empty()
+        || wide.len() > (u16::MAX as usize / 2)
+        || wide
+            .iter()
+            .any(|unit| *unit == 0 || *unit == 47 || *unit == 92 || *unit == 58)
+        || wide == [b'.' as u16]
+        || wide == [b'.' as u16, b'.' as u16]
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid root-relative filename",
+        ));
+    }
+    let mut unicode = UNICODE_STRING {
+        Length: (wide.len() * 2) as u16,
+        MaximumLength: (wide.len() * 2) as u16,
+        Buffer: wide.as_ptr() as *mut u16,
+    };
+    let attributes = OBJECT_ATTRIBUTES {
+        Length: std::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+        RootDirectory: directory.as_raw_handle() as HANDLE,
+        ObjectName: &mut unicode,
+        Attributes: OBJ_CASE_INSENSITIVE as u32,
+        SecurityDescriptor: security_descriptor,
+        SecurityQualityOfService: std::ptr::null(),
+    };
+    let mut handle: HANDLE = std::ptr::null_mut();
+    let mut status_block: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
+    // SAFETY: name and OBJECT_ATTRIBUTES remain alive for the synchronous call;
+    // RootDirectory is a live, uniquely owned File handle, and output storage is valid.
+    let status = unsafe {
+        NtCreateFile(
+            &mut handle,
+            desired_access | windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE,
+            &attributes,
+            &mut status_block,
+            std::ptr::null(),
+            FILE_ATTRIBUTE_NORMAL,
+            share_access,
+            disposition,
+            create_options | FILE_SYNCHRONOUS_IO_NONALERT,
+            std::ptr::null(),
+            0,
+        )
+    };
+    if status < 0 {
+        if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+            unsafe { CloseHandle(handle) };
+        }
+        return Err(match status {
+            STATUS_ACCESS_DENIED => {
+                io::Error::new(io::ErrorKind::PermissionDenied, "root-relative open denied")
+            }
+            STATUS_OBJECT_NAME_COLLISION => io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "root-relative name already exists",
+            ),
+            STATUS_OBJECT_NAME_NOT_FOUND | STATUS_OBJECT_PATH_NOT_FOUND => {
+                io::Error::new(io::ErrorKind::NotFound, "root-relative name not found")
+            }
+            _ => {
+                let code = unsafe { RtlNtStatusToDosError(status) };
+                io::Error::from_raw_os_error(code as i32)
+            }
+        });
+    }
+    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "NtCreateFile returned an invalid handle",
+        ));
+    }
+    // SAFETY: successful NtCreateFile returned a uniquely owned HANDLE, now
+    // transferred to File, which closes it exactly once on drop.
+    Ok(unsafe { File::from_raw_handle(handle as RawHandle) })
+}
+
 #[cfg(test)]
 pub(super) fn create_test_directory_with_sddl(root: &Path, sddl: &str) -> io::Result<()> {
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
     let descriptor = security_descriptor_from_sddl(sddl)?;
     let attributes = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
@@ -333,29 +423,15 @@ fn directory_chain(root: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-fn validate_storage_volume(anchor: &Path) -> io::Result<()> {
+fn validate_storage_volume(anchor: &File) -> io::Result<()> {
     const VOLUME_PATH_CAPACITY: usize = 32_768;
     const FILESYSTEM_NAME_CAPACITY: usize = 64;
-
-    let anchor = wide_path(anchor);
-    let mut volume_path = vec![0u16; VOLUME_PATH_CAPACITY];
-    let volume_path_ok = unsafe {
-        GetVolumePathNameW(
-            anchor.as_ptr(),
-            volume_path.as_mut_ptr(),
-            volume_path.len() as u32,
-        )
-    };
-    if volume_path_ok == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let drive_type = unsafe { GetDriveTypeW(volume_path.as_ptr()) };
 
     let mut filesystem_name = [0u16; FILESYSTEM_NAME_CAPACITY];
     let mut filesystem_flags = 0u32;
     let volume_info_ok = unsafe {
-        GetVolumeInformationW(
-            volume_path.as_ptr(),
+        GetVolumeInformationByHandleW(
+            anchor.as_raw_handle() as HANDLE,
             std::ptr::null_mut(),
             0,
             std::ptr::null_mut(),
@@ -368,6 +444,32 @@ fn validate_storage_volume(anchor: &Path) -> io::Result<()> {
     if volume_info_ok == 0 {
         return Err(io::Error::last_os_error());
     }
+    let mut final_path = vec![0u16; VOLUME_PATH_CAPACITY];
+    let path_len = unsafe {
+        GetFinalPathNameByHandleW(
+            anchor.as_raw_handle() as HANDLE,
+            final_path.as_mut_ptr(),
+            final_path.len() as u32,
+            0,
+        )
+    } as usize;
+    if path_len == 0 || path_len >= final_path.len() {
+        return Err(io::Error::last_os_error());
+    }
+    final_path.truncate(path_len + 1);
+    final_path[path_len] = 0;
+    let mut volume_path = vec![0u16; VOLUME_PATH_CAPACITY];
+    if unsafe {
+        GetVolumePathNameW(
+            final_path.as_ptr(),
+            volume_path.as_mut_ptr(),
+            volume_path.len() as u32,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let drive_type = unsafe { GetDriveTypeW(volume_path.as_ptr()) };
     let name_len = filesystem_name
         .iter()
         .position(|character| *character == 0)
@@ -411,44 +513,88 @@ fn open_and_validate_chain(
 ) -> io::Result<Vec<File>> {
     let mut guards = Vec::with_capacity(paths.len());
     for (index, path) in paths.iter().enumerate() {
-        let handle = open_directory(path)?;
-        let mut tag = FILE_ATTRIBUTE_TAG_INFO {
-            FileAttributes: 0,
-            ReparseTag: 0,
-        };
-        let info_ok = unsafe {
-            GetFileInformationByHandleEx(
-                handle,
-                FileAttributeTagInfo,
-                (&mut tag as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
-                std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
-            )
-        };
-        if info_ok == 0 {
-            unsafe { CloseHandle(handle) };
-            return Err(io::Error::last_os_error());
-        }
-        if tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0
-            || tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
-        {
-            unsafe { CloseHandle(handle) };
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "journal path contains a non-directory or reparse point",
-            ));
-        }
-
-        let file = unsafe { File::from_raw_handle(handle as RawHandle) };
-        let descriptor = security_descriptor_for_handle(handle)?;
-        let leaf = validate_private_leaf && index + 1 == paths.len();
-        if leaf {
-            validate_private_dacl(&descriptor, context)?;
+        let file = if index == 0 {
+            let handle = open_directory(path)?;
+            // SAFETY: successful open_directory returns uniquely owned HANDLE.
+            unsafe { File::from_raw_handle(handle as RawHandle) }
         } else {
-            validate_parent_dacl(&descriptor, context)?;
-        }
+            let parent = guards.last().expect("previous component opened");
+            let name = path.file_name().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid path component")
+            })?;
+            let mut access = READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY;
+            if index + 1 == paths.len() {
+                access |= if validate_private_leaf {
+                    FILE_ADD_FILE
+                } else {
+                    FILE_ADD_SUBDIRECTORY
+                };
+            }
+            open_relative_file(
+                parent,
+                name,
+                access,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                FILE_OPEN,
+                FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
+                std::ptr::null(),
+            )?
+        };
+        let leaf = validate_private_leaf && index + 1 == paths.len();
+        validate_directory_handle(&file, leaf, context)?;
         guards.push(file);
     }
     Ok(guards)
+}
+
+fn validate_directory_handle(file: &File, leaf: bool, context: &SecurityContext) -> io::Result<()> {
+    let handle = file.as_raw_handle() as HANDLE;
+    let mut tag = FILE_ATTRIBUTE_TAG_INFO {
+        FileAttributes: 0,
+        ReparseTag: 0,
+    };
+    let info_ok = unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileAttributeTagInfo,
+            (&mut tag as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+        )
+    };
+    if info_ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0
+        || tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "journal path contains a non-directory or reparse point",
+        ));
+    }
+    let descriptor = security_descriptor_for_handle(handle)?;
+    if leaf {
+        validate_private_dacl(&descriptor, context)
+    } else {
+        validate_parent_dacl(&descriptor, context)
+    }
+}
+
+fn mark_delete_on_handle(file: &File) -> io::Result<()> {
+    let info = FILE_DISPOSITION_INFO { DeleteFile: 1 };
+    let ok = unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle() as HANDLE,
+            FileDispositionInfo,
+            (&info as *const FILE_DISPOSITION_INFO).cast(),
+            std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 fn open_directory(path: &Path) -> io::Result<HANDLE> {
@@ -456,8 +602,11 @@ fn open_directory(path: &Path) -> io::Result<HANDLE> {
     let handle = unsafe {
         CreateFileW(
             path.as_ptr(),
-            READ_CONTROL | FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            READ_CONTROL
+                | FILE_READ_ATTRIBUTES
+                | FILE_LIST_DIRECTORY
+                | windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,

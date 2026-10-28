@@ -1,7 +1,8 @@
 //! Checkpoint encoding for recovery. CRC detects accidental corruption only;
 //! it is not authentication, durable storage, or a lock.
 use super::journal::{
-    encode_transaction_record, valid_transaction_id, RecordError, RegistryRecord, TransactionRecord,
+    encode_existing_transaction_record, valid_transaction_id, RecordError, RegistryRecord,
+    TransactionRecord,
 };
 use serde::{Deserialize, Serialize};
 
@@ -54,7 +55,7 @@ fn validate_records(records: &[TransactionRecord]) -> Result<(), CheckpointError
         if record.sequence() != index as u64 || record.transaction_id() != first.transaction_id() {
             return Err(CheckpointError::InvalidRecords);
         }
-        encode_transaction_record(record).map_err(CheckpointError::Record)?;
+        encode_existing_transaction_record(record).map_err(CheckpointError::Record)?;
     }
     Ok(())
 }
@@ -206,6 +207,21 @@ mod tests {
             }),
         }
     }
+    #[test]
+    fn checkpoint_round_trips_previously_accepted_service_record() {
+        let bytes = br#"{"record_type":"service","payload":{"version":1,"transaction_id":"tx","sequence":0,"target":{"name":"old service"},"before_start_type":5,"intended_start_type":3}}"#;
+        let record = super::super::journal::decode_transaction_record(bytes).unwrap();
+        let checkpoint =
+            Checkpoint::new_typed(std::slice::from_ref(&record), "recovery".into(), 1).unwrap();
+        assert_eq!(
+            decode(&encode(&checkpoint).unwrap())
+                .unwrap()
+                .validate_typed(&[record])
+                .unwrap(),
+            1
+        );
+    }
+
     #[test]
     fn crc_standard_vector() {
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);

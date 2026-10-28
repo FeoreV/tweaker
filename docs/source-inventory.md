@@ -54,3 +54,15 @@ Read-only trace of `functions/private/Invoke-WinUtilTweaks.ps1`, `functions/priv
 - The dispatcher invokes AppX removals only during apply, including provisioned packages; there is no corresponding undo dispatch in this function.
 
 These observations establish dispatch semantics only. The included Pester tests mock registry/service/script/AppX helpers, so they verify routing and arguments, not Windows state changes, failure atomicity, actual helper effects, or safety. Do not port this helper behavior as authorization to mutate state: the Rustweaker transaction/backup contract and supported-OS gates still apply.
+
+## Selection ID and preset extraction
+
+`config/selection-catalog.v1.json` is a generated selection-only fixture, anchored to SHA-256 values for the frozen `applications.json`, `tweaks.json`, `feature.json`, `appx.json`, and `preset.json`. It includes IDs recognized by `Update-WinUtilSelections`: 232 applications, 38 tweaks, 23 toggles, 10 features, and 33 AppX entries. The feature JSON also contains `WPFFixes*` and other UI entries; those are excluded because they are not recognized selection families in the helper. `preset.json` contains four named presets: Standard, Minimal, Advanced, and AppxDefault.
+
+Run `python scripts/verify-selection-catalog.py` to verify hashes, category membership, preset order, and that each preset ID belongs to exactly one family. The verifier parses `tweaks.json` and `feature.json` with Python's `strict=False` because source string values contain literal newlines; the frozen files are never rewritten. This fixture only validates selection IDs and preset membership. It does not describe tweak operations, OS support, installation behavior, rollback, or permission to mutate system state.
+
+## Window Snapping read-only observer
+
+The implemented `WPFToggleWindowSnapping` observer is exposed by `--toggle-status WPFToggleWindowSnapping <native|64|32>`. It reads only `HKCU\Control Panel\Desktop\WindowArrangementActive`, accepts a bounded valid `REG_SZ`, treats a missing key/value as checked per the source declaration, and reports valid nonmatching strings as unchecked. Unsupported types, malformed strings, or read failures are unknown. Output excludes raw registry bytes and has `executable=false`. This does not implement the toggle action or establish that the setting has a Windows effect. The UI remains disconnected from this observer.
+
+The source entrypoint/ID discovery is recorded in [`powershell-action-inventory.md`](powershell-action-inventory.md). It lists 33 public handlers and the five catalog families, while explicitly distinguishing Rust data/read functionality from absent action execution. The linked source paths and catalog totals were verified against the read-only checkout. This is not yet a per-action side-effect, OS-support, or recovery audit.

@@ -43,7 +43,7 @@ pub enum QueryError {
 }
 
 fn open_service(name: &str, access: u32) -> Result<Option<OwnedService>, QueryError> {
-    if name.is_empty() || name.contains('\0') {
+    if !crate::data::journal::valid_service_name(name) {
         return Err(QueryError::InvalidName);
     }
     let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
@@ -936,18 +936,30 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_and_embedded_nul() {
-        assert!(matches!(query(""), Err(QueryError::InvalidName)));
+    fn rejects_invalid_service_names_before_scm_access() {
+        let invalid_names = [
+            "",
+            "invalid\0name",
+            "has/forward",
+            "has\\backslash",
+            "has,comma",
+            "has space",
+        ];
+        for name in invalid_names {
+            assert!(
+                matches!(query(name), Err(QueryError::InvalidName)),
+                "{name:?}"
+            );
+            assert!(
+                matches!(mutation_service(name), Err(MutationError::InvalidName)),
+                "{name:?}"
+            );
+        }
+
+        let too_long = "A".repeat(crate::data::journal::MAX_SERVICE_NAME_UTF16_UNITS + 1);
+        assert!(matches!(query(&too_long), Err(QueryError::InvalidName)));
         assert!(matches!(
-            query("invalid\0name"),
-            Err(QueryError::InvalidName)
-        ));
-        assert!(matches!(
-            mutation_service(""),
-            Err(MutationError::InvalidName)
-        ));
-        assert!(matches!(
-            mutation_service("invalid\0name"),
+            mutation_service(&too_long),
             Err(MutationError::InvalidName)
         ));
     }

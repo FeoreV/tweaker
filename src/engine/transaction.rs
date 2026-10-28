@@ -57,6 +57,39 @@ where
         .map_err(TransactionError::Apply)
 }
 
+/// The guard is evaluated against the same snapshot persisted before mutation.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    Applied,
+    Skipped,
+}
+
+pub fn apply_one_if<B, S, F>(
+    backend: &mut B,
+    store: &mut S,
+    operation: &Operation<B::Target, B::Change>,
+    guard: F,
+) -> Result<ApplyOutcome, TransactionError<B::Error, S::Error>>
+where
+    B: Backend,
+    S: SnapshotStore<B::Target, B::Snapshot, B::Change>,
+    F: FnOnce(&B::Snapshot) -> bool,
+{
+    let before = backend
+        .query(&operation.target)
+        .map_err(TransactionError::Query)?;
+    if !guard(&before) {
+        return Ok(ApplyOutcome::Skipped);
+    }
+    store
+        .persist(&operation.target, &before, &operation.change)
+        .map_err(TransactionError::Persist)?;
+    backend
+        .apply(&operation.target, &operation.change)
+        .map_err(TransactionError::Apply)?;
+    Ok(ApplyOutcome::Applied)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
